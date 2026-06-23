@@ -8,15 +8,41 @@ import {
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
+interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+  status?: 'todo' | 'in_progress' | 'done';
+}
+
 interface Milestone {
   id: string;
   title: string;
   description: string;
   daysFromStart: number;
   priority: 'high' | 'medium' | 'low';
+  difficulty?: 'easy' | 'medium' | 'hard';
   suggestions: string[];
   completed: boolean;
   completedAt?: Timestamp | null;
+  subtasks?: Subtask[];
+}
+
+interface WeeklyObjective {
+  id: string;
+  weekNumber: number;
+  objective: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+}
+
+interface RiskAnalysis {
+  riskScore: number;
+  missProbability: number;
+  reasoning: string;
+  recoveryPlan: string[];
+  updatedAt: string; // ISO date string
 }
 
 interface Goal {
@@ -28,6 +54,10 @@ interface Goal {
   milestones: Milestone[];
   overview?: string;
   urgencyLevel?: string;
+  difficultyLevel?: 'easy' | 'medium' | 'hard';
+  priorityLevel?: 'high' | 'medium' | 'low';
+  weeklyObjectives?: WeeklyObjective[];
+  riskAnalysis?: RiskAnalysis;
   userId: string;
 }
 
@@ -43,7 +73,13 @@ interface AIAssistantViewProps {
 
 export default function AIAssistantView({ goals }: AIAssistantViewProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<string>('all');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    {
+      role: 'model',
+      text: "Welcome to your AI Chief of Staff console. Select a goal context on the left or type a general consulting request to begin.",
+      ts: 0
+    }
+  ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -63,14 +99,16 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
     return Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
   };
 
-  // Initialize welcome message when selected goal context changes
-  useEffect(() => {
-    if (selectedGoal) {
+  // Context-switching handler
+  const changeContext = (id: string) => {
+    setSelectedGoalId(id);
+    const targetGoal = goals.find(g => g.id === id) ?? null;
+    if (targetGoal) {
       setMessages([
         {
           role: 'model',
-          text: `Hello! I'm your AI Chief of Staff for "${selectedGoal.title}". You have ${daysLeft(selectedGoal.deadline)} days remaining. Let's work on completing your milestones. Ask me anything, or run one of the strategic actions below.`,
-          ts: Date.now()
+          text: `Hello! I'm your AI Chief of Staff for "${targetGoal.title}". You have ${daysLeft(targetGoal.deadline)} days remaining. Let's work on completing your milestones. Ask me anything, or run one of the strategic actions below.`,
+          ts: 0
         }
       ]);
     } else {
@@ -78,11 +116,11 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
         {
           role: 'model',
           text: "Welcome to your AI Chief of Staff console. Select a goal context on the left or type a general consulting request to begin.",
-          ts: Date.now()
+          ts: 0
         }
       ]);
     }
-  }, [selectedGoalId, goals]);
+  };
 
   // Strategic prompt templates
   const templates = [
@@ -98,7 +136,7 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
     setInput('');
     setSending(true);
 
-    const userMsg: ChatMessage = { role: 'user', text, ts: Date.now() };
+    const userMsg: ChatMessage = { role: 'user', text, ts: messages.length + 1 };
     setMessages(prev => [...prev, userMsg]);
 
     // Construct body parameters matching API expectation
@@ -125,12 +163,12 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
       });
       const json = await res.json();
       if (json.success) {
-        setMessages(prev => [...prev, { role: 'model', text: json.reply, ts: Date.now() }]);
+        setMessages(prev => [...prev, { role: 'model', text: json.reply, ts: prev.length }]);
       } else {
-        setMessages(prev => [...prev, { role: 'model', text: 'Error contacting assistant.', ts: Date.now() }]);
+        setMessages(prev => [...prev, { role: 'model', text: 'Error contacting assistant.', ts: prev.length }]);
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'model', text: 'Connection timed out. Please try again.', ts: Date.now() }]);
+      setMessages(prev => [...prev, { role: 'model', text: 'Connection timed out. Please try again.', ts: prev.length }]);
     } finally {
       setSending(false);
     }
@@ -149,7 +187,7 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
         {/* Goal context select list */}
         <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar">
           <div
-            onClick={() => setSelectedGoalId('all')}
+            onClick={() => changeContext('all')}
             className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
               selectedGoalId === 'all' 
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold font-sans' 
@@ -163,7 +201,7 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
           {goals.map((g) => (
             <div
               key={g.id}
-              onClick={() => setSelectedGoalId(g.id)}
+              onClick={() => changeContext(g.id)}
               className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                 selectedGoalId === g.id 
                   ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold' 

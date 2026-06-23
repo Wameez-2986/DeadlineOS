@@ -8,15 +8,40 @@ import {
 } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
+interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+}
+
 interface Milestone {
   id: string;
   title: string;
   description: string;
   daysFromStart: number;
   priority: 'high' | 'medium' | 'low';
+  difficulty?: 'easy' | 'medium' | 'hard';
   suggestions: string[];
   completed: boolean;
   completedAt?: Timestamp | null;
+  subtasks?: Subtask[];
+}
+
+interface WeeklyObjective {
+  id: string;
+  weekNumber: number;
+  objective: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+}
+
+interface RiskAnalysis {
+  riskScore: number;
+  missProbability: number;
+  reasoning: string;
+  recoveryPlan: string[];
+  updatedAt: string; // ISO date string
 }
 
 interface Goal {
@@ -28,6 +53,10 @@ interface Goal {
   milestones: Milestone[];
   overview?: string;
   urgencyLevel?: string;
+  difficultyLevel?: 'easy' | 'medium' | 'hard';
+  priorityLevel?: 'high' | 'medium' | 'low';
+  weeklyObjectives?: WeeklyObjective[];
+  riskAnalysis?: RiskAnalysis;
   userId: string;
 }
 

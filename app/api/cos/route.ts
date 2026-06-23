@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
       return handleGenerateMilestones(body);
     } else if (action === 'chat-advisor') {
       return handleChatAdvisor(body);
+    } else if (action === 'predict-risk') {
+      return handlePredictRisk(body);
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
@@ -52,34 +54,49 @@ async function handleGenerateMilestones(body: {
   const deadlineDate = new Date(deadline);
   const today = new Date();
   const totalDays = Math.max(1, Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+  const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
 
-  const prompt = `You are an elite Chief of Staff AI. Break down the following goal into 4-7 actionable milestones.
+  const prompt = `You are an elite Chief of Staff AI. Break down the following goal into a highly structured roadmap with milestones, subtasks, and weekly objectives.
 
 Goal: "${goal}"
 ${description ? `Additional context: "${description}"` : ''}
-Deadline: ${deadlineDate.toDateString()} (${totalDays} days from today)
+Deadline: ${deadlineDate.toDateString()} (${totalDays} days / ${totalWeeks} weeks from today)
 
 Return a JSON object with this exact structure:
 {
-  "milestones": [
+  "difficultyLevel": "easy" | "medium" | "hard",
+  "priorityLevel": "high" | "medium" | "low",
+  "overview": "A 2-3 sentence strategic roadmap overview",
+  "urgencyLevel": "critical" | "high" | "moderate" | "relaxed",
+  "weeklyObjectives": [
     {
-      "title": "Short milestone title (max 8 words)",
-      "description": "Clear, actionable description of what needs to be done (1-2 sentences)",
-      "daysFromStart": <number: when this milestone should be completed, from 0 to ${totalDays}>,
-      "priority": "high" | "medium" | "low",
-      "suggestions": ["Quick actionable tip 1", "Quick actionable tip 2"]
+      "weekNumber": 1,
+      "objective": "Objective for week 1 of the journey"
     }
   ],
-  "overview": "2-3 sentence strategic overview of the plan",
-  "urgencyLevel": "critical" | "high" | "moderate" | "relaxed"
+  "milestones": [
+    {
+      "title": "Milestone title (max 8 words)",
+      "description": "Clear, actionable description of milestone goal",
+      "daysFromStart": <number: when this milestone should be completed, between 0 and ${totalDays}>,
+      "priority": "high" | "medium" | "low",
+      "difficulty": "easy" | "medium" | "hard",
+      "suggestions": ["Quick actionable tip 1", "Quick actionable tip 2"],
+      "subtasks": [
+        {
+          "title": "Actionable subtask title (max 10 words)"
+        }
+      ]
+    }
+  ]
 }
 
 Rules:
-- Milestones must be chronologically ordered by daysFromStart
-- First milestone daysFromStart should be 0-3
-- Last milestone daysFromStart should be ${totalDays - 1} or ${totalDays}
-- Make milestones specific, measurable, and achievable
-- Match urgency to the timeline pressure`;
+- Generate between 3 and 6 milestones.
+- Ensure milestones are chronologically ordered by daysFromStart.
+- For each milestone, provide 3-5 specific, granular, actionable subtasks.
+- Generate weekly objectives for the timeline (up to ${totalWeeks} weeks; if timeline is long, group into key weekly targets, maximum 12 weeks).
+- The estimated completion date for milestones/subtasks will be calculated based on daysFromStart; distribute daysFromStart realistically across the ${totalDays}-day timeline.`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text();
@@ -143,4 +160,68 @@ Guidelines:
   const reply = result.response.text();
 
   return NextResponse.json({ success: true, reply });
+}
+
+async function handlePredictRisk(body: {
+  goal: string;
+  deadline: string;
+  description?: string;
+  milestones: Array<{ title: string; completed: boolean; priority: 'high' | 'medium' | 'low'; difficulty?: 'easy' | 'medium' | 'hard' }>;
+  weeklyObjectives?: Array<{ objective: string; completed: boolean }>;
+  velocity: number;
+}) {
+  const { goal, deadline, description, milestones, weeklyObjectives, velocity } = body;
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.1-flash-lite',
+    safetySettings,
+    generationConfig: {
+      temperature: 0.5,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const deadlineDate = new Date(deadline);
+  const today = new Date();
+  const daysLeft = Math.max(0, Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+
+  const totalMilestones = milestones.length;
+  const completedMilestones = milestones.filter(m => m.completed).length;
+
+  const totalWeekly = weeklyObjectives?.length ?? 0;
+  const completedWeekly = weeklyObjectives?.filter(w => w.completed).length ?? 0;
+
+  const prompt = `You are a financial-grade AI Risk Analyst specialized in project execution audits. Analyze the following goal and timeline metrics to predict the risk of missing the target deadline.
+
+Goal: "${goal}"
+${description ? `Description/Context: "${description}"` : ''}
+Target Deadline: ${deadlineDate.toDateString()} (${daysLeft} days remaining)
+
+Project Metrics:
+- Milestones: ${completedMilestones} completed, ${totalMilestones - completedMilestones} pending.
+- Milestone Details: ${JSON.stringify(milestones.map(m => ({ title: m.title, completed: m.completed, priority: m.priority })))}
+- Weekly Objectives: ${completedWeekly} completed, ${totalWeekly - completedWeekly} pending.
+- User Completion Velocity: ${velocity} tasks completed in the last 7 days.
+
+Return a JSON object with this exact structure:
+{
+  "riskScore": <number: 0 to 100, where 0 is no risk and 100 is certain to miss the deadline>,
+  "missProbability": <number: 0 to 100, representing the percentage probability of missing the deadline>,
+  "reasoning": "A concise paragraph explaining your risk assessment, highlighting bottlenecks (e.g. low velocity vs remaining days, number of pending high-priority items, remaining objectives)",
+  "recoveryPlan": [
+    "Suggested concrete step 1 to de-risk the timeline",
+    "Suggested concrete step 2 to de-risk the timeline",
+    "Suggested concrete step 3 to de-risk the timeline"
+  ]
+}
+
+Rules:
+- Make the risk assessment realistic based on velocity and daysLeft. For example, if there are many pending high-priority tasks and velocity is 0, the risk score should be high.
+- The reasoning should be professional, objective, and analytical (similar to a financial risk audit).`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  const parsed = JSON.parse(text);
+
+  return NextResponse.json({ success: true, data: parsed });
 }

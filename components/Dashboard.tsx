@@ -10,7 +10,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import {
   Plus, X, Zap, Target, CheckCircle2, Loader2,
-  Trash2, Brain, Send, LogOut, Calendar, Sparkles, MoreVertical, TrendingUp, Clock, Menu, Home, AlertTriangle, Search, Settings
+  Trash2, Brain, Send, LogOut, Calendar, Sparkles, MoreVertical, TrendingUp, TrendingDown, Clock, Menu, Home, AlertTriangle, Search, Settings
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -21,19 +21,46 @@ import TasksView from './views/TasksView';
 import CalendarView from './views/CalendarView';
 import AIAssistantView from './views/AIAssistantView';
 import SettingsView from './views/SettingsView';
+import RiskDashboardView from './views/RiskDashboardView';
 
 /* ─────────────────────────────────────────────────
    TYPES
-───────────────────────────────────────────────── */
+   ───────────────────────────────────────────────── */
+interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+  status?: 'todo' | 'in_progress' | 'done';
+}
+
 interface Milestone {
   id: string;
   title: string;
   description: string;
   daysFromStart: number;
   priority: 'high' | 'medium' | 'low';
+  difficulty?: 'easy' | 'medium' | 'hard';
   suggestions: string[];
   completed: boolean;
   completedAt?: Timestamp | null;
+  subtasks?: Subtask[];
+}
+
+interface WeeklyObjective {
+  id: string;
+  weekNumber: number;
+  objective: string;
+  completed: boolean;
+  completedAt?: Timestamp | null;
+}
+
+interface RiskAnalysis {
+  riskScore: number;
+  missProbability: number;
+  reasoning: string;
+  recoveryPlan: string[];
+  updatedAt: string; // ISO date string
 }
 
 interface Goal {
@@ -45,6 +72,10 @@ interface Goal {
   milestones: Milestone[];
   overview?: string;
   urgencyLevel?: string;
+  difficultyLevel?: 'easy' | 'medium' | 'hard';
+  priorityLevel?: 'high' | 'medium' | 'low';
+  weeklyObjectives?: WeeklyObjective[];
+  riskAnalysis?: RiskAnalysis;
   userId: string;
 }
 
@@ -125,6 +156,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState('');
 
   const minDeadline = (() => {
@@ -132,25 +164,71 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     return d.toISOString().split('T')[0];
   })();
 
+  const loadingSteps = [
+    "🧠 Decomposing goal with Gemini...",
+    "📋 Structuring milestones & subtasks...",
+    "📅 Formulating weekly objectives...",
+    "🎯 Calculating estimated completion dates...",
+    "💾 Securing roadmap in Firestore...",
+  ];
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (loading) {
+      interval = setInterval(() => {
+        setLoadingStep((prev) => (prev < 3 ? prev + 1 : prev));
+      }, 1500);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
+
   const handleCreate = async () => {
     if (!title.trim() || !deadline) { setError('Please fill in the goal and deadline.'); return; }
     if (!user) return;
+    setLoadingStep(0);
     setLoading(true);
     setError('');
 
     try {
-      // Generate milestones via AI
+      // Decompose goal via Gemini API
       const res = await fetch('/api/cos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'generate-milestones', goal: title, deadline, description }),
       });
       const json = await res.json();
-      if (!json.success) throw new Error('AI generation failed');
+      if (!json.success) throw new Error('AI decomposition failed');
 
-      const rawMilestones = (json.data?.milestones ?? []).map((m: Omit<Milestone, 'id' | 'completed' | 'completedAt'>, i: number) => ({
+      setLoadingStep(4);
+      // Brief pause to allow user to see "Securing in Firestore" step
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      const rawMilestones = (json.data?.milestones ?? []).map((m: {
+        title: string;
+        description: string;
+        daysFromStart: number;
+        priority: 'high' | 'medium' | 'low';
+        difficulty?: 'easy' | 'medium' | 'hard';
+        suggestions: string[];
+        subtasks?: Array<{ title: string }>;
+      }, i: number) => ({
         ...m,
         id: `m_${Date.now()}_${i}`,
+        completed: false,
+        completedAt: null,
+        difficulty: m.difficulty || 'medium',
+        subtasks: (m.subtasks ?? []).map((st: { title: string }, sti: number) => ({
+          id: `s_${Date.now()}_${i}_${sti}`,
+          title: st.title,
+          completed: false,
+          completedAt: null,
+        })),
+      }));
+
+      const rawWeeklyObjectives = (json.data?.weeklyObjectives ?? []).map((wo: { weekNumber: number; objective: string }, i: number) => ({
+        id: `w_${Date.now()}_${i}`,
+        weekNumber: wo.weekNumber,
+        objective: wo.objective,
         completed: false,
         completedAt: null,
       }));
@@ -161,6 +239,9 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         description: description.trim() || '',
         deadline,
         milestones: rawMilestones,
+        weeklyObjectives: rawWeeklyObjectives,
+        difficultyLevel: json.data?.difficultyLevel ?? 'medium',
+        priorityLevel: json.data?.priorityLevel ?? 'medium',
         overview: json.data?.overview ?? '',
         urgencyLevel: json.data?.urgencyLevel ?? '',
         createdAt: serverTimestamp(),
@@ -169,7 +250,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       onCreated(docRef.id);
       onClose();
     } catch {
-      setError('Failed to create goal. Please try again.');
+      setError('Failed to decompose goal. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -192,8 +273,8 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       >
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-bold text-slate-800">New Goal</h2>
-            <p className="text-sm text-slate-500">AI will craft your milestone roadmap</p>
+            <h2 className="text-xl font-bold text-slate-800">AI Goal Decomposer</h2>
+            <p className="text-sm text-slate-500">Let Gemini map out your milestones & weekly targets</p>
           </div>
           <Button id="modal-close" onClick={onClose} variant="ghost" size="icon" className="text-slate-400 hover:text-slate-600 transition-colors">
             <X size={20} />
@@ -202,29 +283,29 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
         <div className="flex flex-col gap-4">
           <div>
-            <label className="label-luxury block mb-1.5">Goal Title</label>
+            <label className="label-luxury block mb-1.5">Goal Description</label>
             <input
               id="goal-title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Launch iOS App"
+              placeholder="e.g. I want to crack GATE 2027"
               className="glass-input w-full px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400"
             />
           </div>
           <div>
-            <label className="label-luxury block mb-1.5">Context (optional)</label>
+            <label className="label-luxury block mb-1.5">Additional Context (optional)</label>
             <textarea
               id="goal-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Any additional context for the AI…"
+              placeholder="Any background information to assist the AI..."
               rows={2}
               className="glass-input w-full px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 resize-none"
             />
           </div>
           <div>
-            <label className="label-luxury block mb-1.5">Deadline</label>
+            <label className="label-luxury block mb-1.5">Target Completion Date</label>
             <input
               id="goal-deadline"
               type="date"
@@ -239,18 +320,29 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             <p className="text-rose-500 text-sm">{error}</p>
           )}
 
-          <Button
+          <button
             id="goal-create"
             onClick={handleCreate}
             disabled={loading}
-            className="btn-primary mt-2 justify-center"
+            className="btn-primary mt-2 justify-center py-3.5 h-auto text-sm font-semibold flex items-center justify-center"
+            style={{ width: '100%' }}
           >
             {loading ? (
-              <><Loader2 size={16} className="animate-spin" /> Generating Roadmap…</>
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-white" />
+                  <span className="font-bold text-white">Decomposing Goal...</span>
+                </div>
+                <div className="text-[10px] text-indigo-200 transition-all duration-300 animate-pulse font-medium tracking-wide">
+                  {loadingSteps[loadingStep]}
+                </div>
+              </div>
             ) : (
-              <><Sparkles size={16} /> Create Goal with AI</>
+              <span className="flex items-center gap-2">
+                <Sparkles size={16} /> Decompose Goal with Gemini
+              </span>
             )}
-          </Button>
+          </button>
         </div>
       </motion.div>
     </motion.div>
@@ -399,7 +491,7 @@ export default function Dashboard() {
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [activeTab, setActiveTab] = useState<'milestones' | 'chat'>('milestones');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk'>('dashboard');
 
   // Real-time Firestore listener — no orderBy so no composite index needed;
   // we sort client-side by createdAt instead.
@@ -446,10 +538,115 @@ export default function Dashboard() {
     await updateDoc(doc(db, 'goals', goalId), { milestones: updated });
   }, []);
 
+  const updateSubtaskStatus = useCallback(async (goalId: string, milestones: Milestone[], milestoneId: string, subtaskId: string, newStatus: 'todo' | 'in_progress' | 'done') => {
+    const updated = milestones.map((m) => {
+      if (m.id !== milestoneId) return m;
+      const updatedSubtasks = (m.subtasks ?? []).map((s) => {
+        if (s.id !== subtaskId) return s;
+        const completed = newStatus === 'done';
+        return {
+          ...s,
+          status: newStatus,
+          completed,
+          completedAt: completed ? Timestamp.now() : null
+        };
+      });
+      // Automatically toggle milestone completion if all subtasks are complete
+      const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every((st) => st.completed);
+      return {
+        ...m,
+        subtasks: updatedSubtasks,
+        completed: allDone,
+        completedAt: allDone ? Timestamp.now() : null
+      };
+    });
+    await updateDoc(doc(db, 'goals', goalId), { milestones: updated });
+  }, []);
+
+  const toggleSubtask = useCallback(async (goalId: string, milestones: Milestone[], milestoneId: string, subtaskId: string) => {
+    const milestone = milestones.find((m) => m.id === milestoneId);
+    const subtask = milestone?.subtasks?.find((s) => s.id === subtaskId);
+    if (!subtask) return;
+    const nextStatus = subtask.completed ? 'todo' : 'done';
+    await updateSubtaskStatus(goalId, milestones, milestoneId, subtaskId, nextStatus);
+  }, [updateSubtaskStatus]);
+
+  const toggleWeeklyObjective = useCallback(async (goalId: string, weeklyObjectives: WeeklyObjective[], objectiveId: string) => {
+    const updated = (weeklyObjectives ?? []).map((wo) =>
+      wo.id === objectiveId
+        ? { ...wo, completed: !wo.completed, completedAt: !wo.completed ? Timestamp.now() : null }
+        : wo
+    );
+    await updateDoc(doc(db, 'goals', goalId), { weeklyObjectives: updated });
+  }, []);
+
   const deleteGoal = useCallback(async (goalId: string) => {
     await deleteDoc(doc(db, 'goals', goalId));
     if (selectedGoalId === goalId) setSelectedGoalId(null);
   }, [selectedGoalId]);
+
+  const runRiskAssessment = useCallback(async (goalId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    // Calculate velocity: count of subtasks completed in the last 7 days
+    let velocity = 0;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    goal.milestones.forEach((m) => {
+      (m.subtasks ?? []).forEach((s) => {
+        if (s.completed && s.completedAt) {
+          const completedMs = typeof s.completedAt.toMillis === 'function'
+            ? s.completedAt.toMillis()
+            : new Date(s.completedAt as any).getTime();
+          if (completedMs >= sevenDaysAgo) {
+            velocity++;
+          }
+        }
+      });
+    });
+
+    try {
+      const res = await fetch('/api/cos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'predict-risk',
+          goal: goal.title,
+          deadline: goal.deadline,
+          description: goal.description,
+          milestones: goal.milestones.map((m) => ({
+            title: m.title,
+            completed: m.completed,
+            priority: m.priority,
+            difficulty: m.difficulty
+          })),
+          weeklyObjectives: (goal.weeklyObjectives ?? []).map((wo) => ({
+            objective: wo.objective,
+            completed: wo.completed
+          })),
+          velocity
+        })
+      });
+
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || 'Failed to predict risk');
+      }
+
+      const riskData: RiskAnalysis = {
+        riskScore: json.data.riskScore,
+        missProbability: json.data.missProbability,
+        reasoning: json.data.reasoning,
+        recoveryPlan: json.data.recoveryPlan,
+        updatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'goals', goalId), { riskAnalysis: riskData });
+    } catch (err) {
+      console.error('Error running risk assessment:', err);
+      throw err;
+    }
+  }, [goals]);
 
   const handleLogout = async () => {
     await logout();
@@ -512,6 +709,7 @@ export default function Dashboard() {
                 { id: 'goals', label: 'Goals Manager', icon: Target },
                 { id: 'tasks', label: 'Tasks Tracker', icon: CheckCircle2 },
                 { id: 'calendar', label: 'Calendar Grid', icon: Calendar },
+                { id: 'risk', label: 'Risk Analytics', icon: TrendingDown },
                 { id: 'ai', label: 'AI Chief of Staff', icon: Brain },
                 { id: 'settings', label: 'Settings', icon: Settings },
               ] as const).map((item) => {
@@ -656,7 +854,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
               <h1 className="text-base font-extrabold text-slate-800 tracking-tight capitalize">
-                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : 'Settings'}
+                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : currentView === 'risk' ? 'Risk Analytics' : 'Settings'}
               </h1>
             </div>
             
@@ -699,6 +897,9 @@ export default function Dashboard() {
               setSelectedGoalId={setSelectedGoalId}
               setShowNewGoal={setShowNewGoal}
               toggleMilestone={toggleMilestone}
+              toggleSubtask={toggleSubtask}
+              updateSubtaskStatus={updateSubtaskStatus}
+              toggleWeeklyObjective={toggleWeeklyObjective}
               deleteGoal={deleteGoal}
             />
           )}
@@ -716,6 +917,15 @@ export default function Dashboard() {
           {currentView === 'ai' && (
             <AIAssistantView
               goals={goals}
+            />
+          )}
+          {currentView === 'risk' && (
+            <RiskDashboardView
+              goals={goals}
+              runRiskAssessment={runRiskAssessment}
+              onNavigate={setCurrentView}
+              selectedGoalId={selectedGoalId}
+              setSelectedGoalId={setSelectedGoalId}
             />
           )}
           {currentView === 'settings' && (
