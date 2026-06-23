@@ -1,0 +1,873 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  collection, addDoc, updateDoc, deleteDoc, doc,
+  onSnapshot, query, where, serverTimestamp, Timestamp
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/context/AuthContext';
+import {
+  Plus, X, Zap, Target, CheckCircle2, Circle, Loader2,
+  Trash2, Brain, Send, LogOut, Calendar, Sparkles,
+  ChevronRight, MoreVertical, TrendingUp, Clock,
+  MessageSquare, Menu, Home, AlertTriangle
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+
+/* ─────────────────────────────────────────────────
+   TYPES
+───────────────────────────────────────────────── */
+interface Milestone {
+  id: string;
+  title: string;
+  description: string;
+  daysFromStart: number;
+  priority: 'high' | 'medium' | 'low';
+  suggestions: string[];
+  completed: boolean;
+  completedAt?: Timestamp | null;
+}
+
+interface Goal {
+  id: string;
+  title: string;
+  description?: string;
+  deadline: string; // ISO date string
+  createdAt: Timestamp;
+  milestones: Milestone[];
+  overview?: string;
+  urgencyLevel?: string;
+  userId: string;
+}
+
+interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  ts: number;
+}
+
+/* ─────────────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────────────── */
+function daysLeft(deadline: string): number {
+  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 86400000));
+}
+
+function urgencyColor(level?: string, days?: number): string {
+  if (level === 'critical' || (days !== undefined && days <= 3)) return '#EF4444';
+  if (level === 'high' || (days !== undefined && days <= 7)) return '#F59E0B';
+  if (level === 'moderate' || (days !== undefined && days <= 21)) return '#6366F1';
+  return '#22C55E';
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/* ─────────────────────────────────────────────────
+   URGENCY RING
+───────────────────────────────────────────────── */
+function UrgencyRing({ completed, total, deadline, urgencyLevel }: {
+  completed: number; total: number; deadline: string; urgencyLevel?: string;
+}) {
+  const pct = total === 0 ? 0 : completed / total;
+  const r = 40;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * pct;
+  const days = daysLeft(deadline);
+  const color = urgencyColor(urgencyLevel, days);
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative w-28 h-28">
+        <svg viewBox="0 0 96 96" className="w-28 h-28 -rotate-90">
+          <circle cx="48" cy="48" r={r} fill="none" stroke="#E2E8F0" strokeWidth="8" />
+          <circle
+            cx="48" cy="48" r={r}
+            fill="none" stroke={color} strokeWidth="8"
+            strokeDasharray={`${dash} ${circ}`}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dasharray 0.6s ease' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold text-slate-800">{Math.round(pct * 100)}%</span>
+          <span className="text-xs text-slate-400">done</span>
+        </div>
+      </div>
+      <div className="text-center">
+        <div
+          className="text-2xl font-bold"
+          style={{ color }}
+        >
+          {days}
+        </div>
+        <div className="text-xs text-slate-400 uppercase tracking-wide">days left</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   NEW GOAL MODAL
+───────────────────────────────────────────────── */
+function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const { user } = useAuth();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const minDeadline = (() => {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  })();
+
+  const handleCreate = async () => {
+    if (!title.trim() || !deadline) { setError('Please fill in the goal and deadline.'); return; }
+    if (!user) return;
+    setLoading(true);
+    setError('');
+
+    try {
+      // Generate milestones via AI
+      const res = await fetch('/api/cos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate-milestones', goal: title, deadline, description }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error('AI generation failed');
+
+      const rawMilestones = (json.data?.milestones ?? []).map((m: Omit<Milestone, 'id' | 'completed' | 'completedAt'>, i: number) => ({
+        ...m,
+        id: `m_${Date.now()}_${i}`,
+        completed: false,
+        completedAt: null,
+      }));
+
+      const docRef = await addDoc(collection(db, 'goals'), {
+        userId: user.uid,
+        title: title.trim(),
+        description: description.trim() || '',
+        deadline,
+        milestones: rawMilestones,
+        overview: json.data?.overview ?? '',
+        urgencyLevel: json.data?.urgencyLevel ?? '',
+        createdAt: serverTimestamp(),
+      });
+
+      onCreated(docRef.id);
+      onClose();
+    } catch {
+      setError('Failed to create goal. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: 'rgba(15, 23, 42, 0.5)', backdropFilter: 'blur(4px)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ scale: 0.95, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.95, y: 20 }}
+        className="glass-panel p-8 w-full max-w-md"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">New Goal</h2>
+            <p className="text-sm text-slate-500">AI will craft your milestone roadmap</p>
+          </div>
+          <Button id="modal-close" onClick={onClose} variant="ghost" size="icon" className="text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={20} />
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="label-luxury block mb-1.5">Goal Title</label>
+            <input
+              id="goal-title"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Launch iOS App"
+              className="glass-input w-full px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400"
+            />
+          </div>
+          <div>
+            <label className="label-luxury block mb-1.5">Context (optional)</label>
+            <textarea
+              id="goal-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Any additional context for the AI…"
+              rows={2}
+              className="glass-input w-full px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 resize-none"
+            />
+          </div>
+          <div>
+            <label className="label-luxury block mb-1.5">Deadline</label>
+            <input
+              id="goal-deadline"
+              type="date"
+              value={deadline}
+              min={minDeadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="glass-input w-full px-4 py-3 text-sm text-slate-800"
+            />
+          </div>
+
+          {error && (
+            <p className="text-rose-500 text-sm">{error}</p>
+          )}
+
+          <Button
+            id="goal-create"
+            onClick={handleCreate}
+            disabled={loading}
+            className="btn-primary mt-2 justify-center"
+          >
+            {loading ? (
+              <><Loader2 size={16} className="animate-spin" /> Generating Roadmap…</>
+            ) : (
+              <><Sparkles size={16} /> Create Goal with AI</>
+            )}
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   CHAT PANEL
+───────────────────────────────────────────────── */
+function ChatPanel({ goal }: { goal: Goal }) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    {
+      role: 'model',
+      text: `I'm your AI Chief of Staff for "${goal.title}". You have ${daysLeft(goal.deadline)} days left. What's on your mind?`,
+      ts: Date.now(),
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput('');
+    setSending(true);
+
+    const userMsg: ChatMessage = { role: 'user', text, ts: Date.now() };
+    setMessages((m) => [...m, userMsg]);
+
+    try {
+      const res = await fetch('/api/cos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'chat-advisor',
+          message: text,
+          goal: goal.title,
+          deadline: goal.deadline,
+          milestones: goal.milestones.map((m) => ({
+            title: m.title,
+            completed: m.completed,
+            daysFromStart: m.daysFromStart,
+          })),
+          history: messages.map((m) => ({ role: m.role, text: m.text })),
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setMessages((m) => [...m, { role: 'model', text: json.reply, ts: Date.now() }]);
+      }
+    } catch {
+      setMessages((m) => [...m, { role: 'model', text: 'I had trouble connecting. Please try again.', ts: Date.now() }]);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 no-scrollbar">
+        {messages.map((msg, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={msg.role === 'user' ? 'self-end' : 'self-start'}
+            style={{ maxWidth: '85%' }}
+          >
+            {msg.role === 'model' && (
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+                >
+                  <Zap size={10} className="text-white" />
+                </div>
+                <span className="text-xs font-semibold text-slate-500">AI Chief of Staff</span>
+              </div>
+            )}
+            <div className={msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}>
+              {msg.text}
+            </div>
+          </motion.div>
+        ))}
+        {sending && (
+          <div className="self-start">
+            <div className="chat-bubble-ai flex items-center gap-2">
+              <div className="flex gap-1">
+                {[0, 0.15, 0.3].map((d) => (
+                  <span
+                    key={d}
+                    className="w-1.5 h-1.5 rounded-full bg-slate-400"
+                    style={{ animation: `pulse 1s ease-in-out ${d}s infinite` }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="p-3 border-t border-slate-100">
+        <div className="flex gap-2">
+          <input
+            id="chat-input"
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            placeholder="Ask your Chief of Staff…"
+            className="glass-input flex-1 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400"
+          />
+          <button
+            id="chat-send"
+            onClick={sendMessage}
+            disabled={sending || !input.trim()}
+            className="btn-primary px-3 py-2.5"
+            style={{ minWidth: '42px' }}
+          >
+            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────
+   MAIN DASHBOARD
+───────────────────────────────────────────────── */
+export default function Dashboard() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [showNewGoal, setShowNewGoal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'milestones' | 'chat'>('milestones');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Real-time Firestore listener — no orderBy so no composite index needed;
+  // we sort client-side by createdAt instead.
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'goals'),
+      where('userId', '==', user.uid)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const docs = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Goal))
+          .sort((a, b) => {
+            const aMs = a.createdAt?.toMillis?.() ?? 0;
+            const bMs = b.createdAt?.toMillis?.() ?? 0;
+            return bMs - aMs; // newest first
+          });
+        setGoals(docs);
+        setGoalsLoading(false);
+        // Auto-select first goal if none selected
+        if (docs.length > 0 && !selectedGoalId) {
+          setSelectedGoalId(docs[0].id);
+        }
+      },
+      (error) => {
+        // Always stop the loading skeleton, even on Firestore errors
+        console.error('Firestore snapshot error:', error.code, error.message);
+        setGoalsLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [user]);
+
+  const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
+
+  const toggleMilestone = useCallback(async (goalId: string, milestones: Milestone[], milestoneId: string) => {
+    const updated = milestones.map((m) =>
+      m.id === milestoneId
+        ? { ...m, completed: !m.completed, completedAt: !m.completed ? Timestamp.now() : null }
+        : m
+    );
+    await updateDoc(doc(db, 'goals', goalId), { milestones: updated });
+  }, []);
+
+  const deleteGoal = useCallback(async (goalId: string) => {
+    await deleteDoc(doc(db, 'goals', goalId));
+    if (selectedGoalId === goalId) setSelectedGoalId(null);
+  }, [selectedGoalId]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/');
+  };
+
+  const priorityDot: Record<string, string> = {
+    high: '#F59E0B',
+    medium: '#6366F1',
+    low: '#22C55E',
+  };
+
+  return (
+    <div className="flex h-screen bg-luxury-grid overflow-hidden">
+
+      {/* ── SIDEBAR ────────────────────────────────────── */}
+      <AnimatePresence>
+        {(sidebarOpen || true) && (
+          <motion.aside
+            initial={false}
+            className="hidden lg:flex flex-col w-72 flex-shrink-0 border-r border-slate-200/60"
+            style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)' }}
+          >
+            {/* Brand */}
+            <div className="h-16 flex items-center px-5 border-b border-slate-100/80">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+                >
+                  <Zap size={15} className="text-white" />
+                </div>
+                <span className="font-bold text-slate-800 tracking-tight">DeadlineOS</span>
+              </div>
+            </div>
+
+            {/* User */}
+            <div className="px-4 py-4 border-b border-slate-100/80">
+              <div className="flex items-center gap-3 px-2 py-2 rounded-xl"
+                style={{ background: 'rgba(99,102,241,0.05)' }}>
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+                >
+                  {(user?.displayName?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">
+                    {user?.displayName ?? 'Chief of Staff'}
+                  </p>
+                  <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Goals list */}
+            <div className="flex-1 overflow-y-auto py-3 px-3 no-scrollbar">
+              <div className="flex items-center justify-between px-2 mb-2">
+                <span className="label-luxury">My Goals</span>
+                <button
+                  id="sidebar-new-goal"
+                  onClick={() => setShowNewGoal(true)}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-indigo-600 hover:bg-indigo-50 transition-colors"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+
+              {goalsLoading ? (
+                <div className="flex flex-col gap-2 px-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="skeleton h-14 rounded-xl" />
+                  ))}
+                </div>
+              ) : goals.length === 0 ? (
+                <div className="px-2 py-8 text-center">
+                  <Target size={28} className="text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400">No goals yet</p>
+                  <button
+                    id="sidebar-empty-new"
+                    onClick={() => setShowNewGoal(true)}
+                    className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                  >
+                    + Create your first goal
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {goals.map((goal) => {
+                    const dl = daysLeft(goal.deadline);
+                    const completed = goal.milestones.filter((m) => m.completed).length;
+                    const total = goal.milestones.length;
+                    const color = urgencyColor(goal.urgencyLevel, dl);
+                    const isSelected = goal.id === selectedGoalId;
+
+                    return (
+                      <div
+                        key={goal.id}
+                        id={`goal-item-${goal.id}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => { setSelectedGoalId(goal.id); setSidebarOpen(false); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedGoalId(goal.id);
+                            setSidebarOpen(false);
+                          }
+                        }}
+                        className="w-full text-left px-3 py-3 rounded-xl transition-all duration-150 group cursor-pointer select-none"
+                        style={{
+                          background: isSelected ? 'rgba(99,102,241,0.08)' : 'transparent',
+                          border: isSelected ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2 min-w-0">
+                            <div
+                              className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                              style={{ background: color }}
+                            />
+                            <p className={`text-sm font-semibold truncate ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                              {goal.title}
+                            </p>
+                          </div>
+                          <button
+                            id={`goal-delete-${goal.id}`}
+                            onClick={(e) => { e.stopPropagation(); deleteGoal(goal.id); }}
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-400 transition-all flex-shrink-0"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1.5 ml-4">
+                          <div className="flex-1 h-1 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${total === 0 ? 0 : (completed / total) * 100}%`, background: color }}
+                            />
+                          </div>
+                          <span className="text-xs text-slate-400 flex-shrink-0">{dl}d left</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Logout */}
+            <div className="p-4 border-t border-slate-100/80">
+              <Button
+                id="sidebar-logout"
+                onClick={handleLogout}
+                variant="ghost"
+                className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm text-slate-500 hover:text-rose-500 hover:bg-rose-50 transition-all justify-start"
+              >
+                <LogOut size={15} /> Sign Out
+              </Button>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* ── MAIN CONTENT ────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* Top bar */}
+        <header
+          className="h-16 flex items-center px-6 border-b border-slate-200/60 flex-shrink-0"
+          style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)' }}
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+              {selectedGoal ? (
+                <>
+                  <div>
+                    <h1 className="font-bold text-slate-800 text-base leading-tight truncate max-w-xs">
+                      {selectedGoal.title}
+                    </h1>
+                    <p className="text-xs text-slate-400">Deadline: {formatDate(selectedGoal.deadline)}</p>
+                  </div>
+                </>
+              ) : (
+                <h1 className="font-bold text-slate-800 text-lg">Dashboard</h1>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                id="header-new-goal"
+                onClick={() => setShowNewGoal(true)}
+                className="btn-primary px-4 py-2 text-sm"
+              >
+                <Plus size={15} /> New Goal
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        {/* Content */}
+        {!selectedGoal ? (
+          /* EMPTY STATE */
+          <div className="flex-1 flex items-center justify-center px-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center max-w-md"
+            >
+              <div
+                className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6"
+                style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.06))' }}
+              >
+                <Target size={36} className="text-indigo-400" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-800 mb-2">
+                {goals.length === 0 ? 'Set your first goal' : 'Select a goal'}
+              </h2>
+              <p className="text-slate-500 text-sm mb-6">
+                {goals.length === 0
+                  ? 'Create a goal and let AI build you a milestone roadmap to hit your deadline.'
+                  : 'Choose a goal from the sidebar to see your milestones and chat with your AI advisor.'}
+              </p>
+              {goals.length === 0 && (
+                <button
+                  id="empty-new-goal"
+                  onClick={() => setShowNewGoal(true)}
+                  className="btn-primary mx-auto"
+                >
+                  <Sparkles size={16} /> Create Goal with AI
+                </button>
+              )}
+            </motion.div>
+          </div>
+        ) : (
+          /* GOAL DETAIL */
+          <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+
+            {/* Left panel: Urgency + Milestones */}
+            <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
+
+              {/* Stats row */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+
+                {/* Urgency ring */}
+                <div className="glass-panel p-5 flex flex-col items-center justify-center col-span-1">
+                  <UrgencyRing
+                    completed={selectedGoal.milestones.filter((m) => m.completed).length}
+                    total={selectedGoal.milestones.length}
+                    deadline={selectedGoal.deadline}
+                    urgencyLevel={selectedGoal.urgencyLevel}
+                  />
+                </div>
+
+                {/* Overview */}
+                <div className="glass-panel p-5 col-span-1 lg:col-span-2">
+                  <p className="label-luxury mb-2">AI Overview</p>
+                  {selectedGoal.overview ? (
+                    <p className="text-sm text-slate-600 leading-relaxed">{selectedGoal.overview}</p>
+                  ) : (
+                    <p className="text-sm text-slate-400 italic">No overview available.</p>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 size={14} className="text-green-500" />
+                      <span className="text-xs text-slate-600 font-medium">
+                        {selectedGoal.milestones.filter((m) => m.completed).length} completed
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Circle size={14} className="text-slate-300" />
+                      <span className="text-xs text-slate-600 font-medium">
+                        {selectedGoal.milestones.filter((m) => !m.completed).length} remaining
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar size={14} className="text-indigo-400" />
+                      <span className="text-xs text-slate-600 font-medium">
+                        Due {formatDate(selectedGoal.deadline)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-1 p-1 rounded-xl mb-5 w-fit" style={{ background: 'rgba(241, 245, 249, 0.8)' }}>
+                {(['milestones', 'chat'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    id={`tab-${tab}`}
+                    onClick={() => setActiveTab(tab)}
+                    className="flex items-center gap-1.5 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-200"
+                    style={{
+                      background: activeTab === tab ? '#fff' : 'transparent',
+                      color: activeTab === tab ? '#4F46E5' : '#64748B',
+                      boxShadow: activeTab === tab ? '0 1px 4px rgba(30,41,59,0.08)' : 'none',
+                    }}
+                  >
+                    {tab === 'milestones' ? <><CheckCircle2 size={14} /> Milestones</> : <><MessageSquare size={14} /> AI Chat</>}
+                  </button>
+                ))}
+              </div>
+
+              <AnimatePresence mode="wait">
+                {activeTab === 'milestones' ? (
+                  <motion.div
+                    key="milestones"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 8 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {selectedGoal.milestones.length === 0 ? (
+                      <div className="text-center py-12">
+                        <p className="text-slate-400 text-sm">No milestones generated yet.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {selectedGoal.milestones.map((m, i) => (
+                          <motion.div
+                            key={m.id}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.04 }}
+                            className="glass-panel-sm p-4"
+                            style={{ opacity: m.completed ? 0.7 : 1 }}
+                          >
+                            <div className="flex items-start gap-3">
+                              {/* Checkbox */}
+                              <button
+                                id={`milestone-check-${m.id}`}
+                                onClick={() => toggleMilestone(selectedGoal.id, selectedGoal.milestones, m.id)}
+                                className="mt-0.5 flex-shrink-0"
+                              >
+                                <div className={`milestone-checkbox ${m.completed ? 'checked' : ''}`}>
+                                  {m.completed && <CheckCircle2 size={11} className="text-white" />}
+                                </div>
+                              </button>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <h4 className={`text-sm font-semibold ${m.completed ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                                    {m.title}
+                                  </h4>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span
+                                      className="w-2 h-2 rounded-full flex-shrink-0"
+                                      style={{ background: priorityDot[m.priority] ?? '#94A3B8' }}
+                                      title={`${m.priority} priority`}
+                                    />
+                                    <span className="text-xs text-slate-400">Day {m.daysFromStart}</span>
+                                  </div>
+                                </div>
+                                <p className={`text-xs leading-relaxed ${m.completed ? 'text-slate-300' : 'text-slate-500'}`}>
+                                  {m.description}
+                                </p>
+                                {!m.completed && m.suggestions?.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {m.suggestions.map((s, si) => (
+                                      <span
+                                        key={si}
+                                        className="text-xs px-2.5 py-0.5 rounded-full text-indigo-600 font-medium"
+                                        style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.12)' }}
+                                      >
+                                        {s}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="chat"
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8 }}
+                    transition={{ duration: 0.2 }}
+                    className="glass-panel overflow-hidden"
+                    style={{ height: '520px' }}
+                  >
+                    <div
+                      className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100"
+                      style={{ background: 'rgba(99,102,241,0.04)' }}
+                    >
+                      <div
+                        className="w-7 h-7 rounded-lg flex items-center justify-center"
+                        style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+                      >
+                        <Brain size={13} className="text-white" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">AI Chief of Staff</p>
+                        <p className="text-xs text-green-500 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                          Online
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ height: 'calc(100% - 52px)' }}>
+                      <ChatPanel goal={selectedGoal} />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* New Goal Modal */}
+      <AnimatePresence>
+        {showNewGoal && (
+          <NewGoalModal
+            onClose={() => setShowNewGoal(false)}
+            onCreated={(id) => setSelectedGoalId(id)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
