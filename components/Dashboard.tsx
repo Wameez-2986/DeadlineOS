@@ -22,6 +22,7 @@ import CalendarView from './views/CalendarView';
 import AIAssistantView from './views/AIAssistantView';
 import SettingsView from './views/SettingsView';
 import RiskDashboardView from './views/RiskDashboardView';
+import AutoPlannerView from './views/AutoPlannerView';
 
 /* ─────────────────────────────────────────────────
    TYPES
@@ -63,6 +64,55 @@ interface RiskAnalysis {
   updatedAt: string; // ISO date string
 }
 
+interface WorkSession {
+  id: string;
+  title: string;
+  durationHours: number;
+  dayStr: string; // YYYY-MM-DD
+  timeSlot: 'morning' | 'afternoon' | 'evening';
+  completed: boolean;
+  milestoneId?: string;
+}
+
+interface WeeklyPlanSummary {
+  weekNumber: number;
+  focusTitle: string;
+  allocatedHours: number;
+}
+
+interface AutoPlan {
+  sessions: WorkSession[];
+  weeklySummaries: WeeklyPlanSummary[];
+  availableHoursPerDay: number;
+  generatedAt: string;
+}
+
+interface RecoveryProposal {
+  beforeSessions: WorkSession[];
+  updatedSessions: WorkSession[];
+  explanation: string;
+  recoveryPlan: string[];
+  suggestedDeadline: string; // YYYY-MM-DD
+  originalDeadline: string; // YYYY-MM-DD
+  generatedAt: string;
+}
+
+interface RawSession {
+  id: string;
+  title: string;
+  durationHours: number;
+  dayOffset: number;
+  timeSlot?: 'morning' | 'afternoon' | 'evening';
+  completed: boolean;
+  milestoneId?: string;
+}
+
+interface RawWeeklySummary {
+  weekNumber: number;
+  focusTitle: string;
+  allocatedHours: number;
+}
+
 interface Goal {
   id: string;
   title: string;
@@ -76,6 +126,8 @@ interface Goal {
   priorityLevel?: 'high' | 'medium' | 'low';
   weeklyObjectives?: WeeklyObjective[];
   riskAnalysis?: RiskAnalysis;
+  autoPlan?: AutoPlan;
+  recoveryProposal?: RecoveryProposal;
   userId: string;
 }
 
@@ -491,7 +543,7 @@ export default function Dashboard() {
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [activeTab, setActiveTab] = useState<'milestones' | 'chat'>('milestones');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk' | 'planner'>('dashboard');
 
   // Real-time Firestore listener — no orderBy so no composite index needed;
   // we sort client-side by createdAt instead.
@@ -597,7 +649,7 @@ export default function Dashboard() {
         if (s.completed && s.completedAt) {
           const completedMs = typeof s.completedAt.toMillis === 'function'
             ? s.completedAt.toMillis()
-            : new Date(s.completedAt as any).getTime();
+            : new Date(s.completedAt as unknown as string).getTime();
           if (completedMs >= sevenDaysAgo) {
             velocity++;
           }
@@ -647,6 +699,201 @@ export default function Dashboard() {
       throw err;
     }
   }, [goals]);
+
+  const generateAutoPlan = useCallback(async (goalId: string, availableHoursPerDay: number) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    try {
+      const res = await fetch('/api/cos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate-auto-plan',
+          goal: goal.title,
+          deadline: goal.deadline,
+          description: goal.description,
+          availableHoursPerDay,
+          milestones: goal.milestones.map((m) => ({
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            priority: m.priority,
+            subtasks: (m.subtasks ?? []).map((s) => ({ id: s.id, title: s.title }))
+          }))
+        })
+      });
+
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || 'Failed to generate plan');
+      }
+
+      // Convert day offsets in sessions to absolute YYYY-MM-DD strings.
+      const today = new Date();
+      const formatSessionDate = (dayOffset: number) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + dayOffset);
+        return d.toISOString().split('T')[0];
+      };
+
+      const rawSessions = (json.data.sessions ?? []).map((s: RawSession) => ({
+        id: s.id,
+        title: s.title,
+        durationHours: Number(s.durationHours) || 1,
+        dayStr: formatSessionDate(Number(s.dayOffset) || 0),
+        timeSlot: s.timeSlot || 'morning',
+        completed: !!s.completed,
+        milestoneId: s.milestoneId || ''
+      }));
+
+      const rawWeekly = (json.data.weeklySummaries ?? []).map((w: RawWeeklySummary) => ({
+        weekNumber: Number(w.weekNumber) || 1,
+        focusTitle: w.focusTitle || 'Weekly Focus',
+        allocatedHours: Number(w.allocatedHours) || 0
+      }));
+
+      const autoPlanData: AutoPlan = {
+        sessions: rawSessions,
+        weeklySummaries: rawWeekly,
+        availableHoursPerDay,
+        generatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'goals', goalId), { autoPlan: autoPlanData });
+    } catch (err) {
+      console.error('Error generating auto plan:', err);
+      throw err;
+    }
+  }, [goals]);
+
+  const saveAutoPlan = useCallback(async (goalId: string, autoPlanData: AutoPlan) => {
+    try {
+      await updateDoc(doc(db, 'goals', goalId), { autoPlan: autoPlanData });
+    } catch (err) {
+      console.error('Error saving auto plan:', err);
+      throw err;
+    }
+  }, []);
+
+  const runReplannerAgent = useCallback(async (goalId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal || !goal.autoPlan) return;
+
+    // Detect missed work: completed === false and dayStr is in the past
+    const todayStr = new Date().toISOString().split('T')[0];
+    const missedSessions = goal.autoPlan.sessions.filter((s) => {
+      return !s.completed && s.dayStr < todayStr;
+    });
+
+    if (missedSessions.length === 0) {
+      throw new Error('No missed work sessions detected for this goal.');
+    }
+
+    try {
+      const res = await fetch('/api/cos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'replan-schedule',
+          goal: goal.title,
+          deadline: goal.deadline,
+          description: goal.description,
+          availableHoursPerDay: goal.autoPlan.availableHoursPerDay,
+          sessions: goal.autoPlan.sessions,
+          missedSessions
+        })
+      });
+
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || 'Failed to replan schedule');
+      }
+
+      // Convert day offsets to absolute YYYY-MM-DD strings relative to today
+      const today = new Date();
+      const formatSessionDate = (dayOffset: number) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + dayOffset);
+        return d.toISOString().split('T')[0];
+      };
+
+      const updatedSessions = (json.data.updatedSessions ?? []).map((s: RawSession) => ({
+        id: s.id,
+        title: s.title,
+        durationHours: Number(s.durationHours) || 1,
+        dayStr: formatSessionDate(Number(s.dayOffset) || 0),
+        timeSlot: s.timeSlot || 'morning',
+        completed: !!s.completed,
+        milestoneId: s.milestoneId || ''
+      }));
+
+      const suggestedDeadline = formatSessionDate(Number(json.data.suggestedDeadlineOffset) || 0);
+
+      const proposal: RecoveryProposal = {
+        beforeSessions: missedSessions,
+        updatedSessions,
+        explanation: json.data.explanation || 'No explanation provided.',
+        recoveryPlan: json.data.recoveryPlan || [],
+        suggestedDeadline,
+        originalDeadline: goal.deadline,
+        generatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'goals', goalId), { recoveryProposal: proposal });
+    } catch (err) {
+      console.error('Error running replanner agent:', err);
+      throw err;
+    }
+  }, [goals]);
+
+  const applyRecoveryProposal = useCallback(async (goalId: string, proposal: RecoveryProposal) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal || !goal.autoPlan) return;
+
+    // Recalculate weekly summarized hours for the updated sessions
+    const start = goal.createdAt?.toDate?.() ?? new Date();
+    const map = new Map<number, number>();
+    proposal.updatedSessions.forEach((s) => {
+      const diffTime = new Date(s.dayStr).getTime() - new Date(start).getTime();
+      const diffDays = Math.max(0, Math.floor(diffTime / 86400000));
+      const weekIndex = Math.floor(diffDays / 7) + 1;
+      map.set(weekIndex, (map.get(weekIndex) || 0) + s.durationHours);
+    });
+
+    const updatedWeeklySummaries = (goal.autoPlan.weeklySummaries ?? []).map((w) => ({
+      ...w,
+      allocatedHours: map.get(w.weekNumber) || 0
+    }));
+
+    const updatedAutoPlan: AutoPlan = {
+      ...goal.autoPlan,
+      sessions: proposal.updatedSessions,
+      weeklySummaries: updatedWeeklySummaries
+    };
+
+    try {
+      await updateDoc(doc(db, 'goals', goalId), {
+        autoPlan: updatedAutoPlan,
+        deadline: proposal.suggestedDeadline,
+        recoveryProposal: null // clear the proposal
+      });
+    } catch (err) {
+      console.error('Error applying recovery proposal:', err);
+      throw err;
+    }
+  }, [goals]);
+
+  const rejectRecoveryProposal = useCallback(async (goalId: string) => {
+    try {
+      await updateDoc(doc(db, 'goals', goalId), {
+        recoveryProposal: null // clear the proposal
+      });
+    } catch (err) {
+      console.error('Error rejecting recovery proposal:', err);
+      throw err;
+    }
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -709,6 +956,7 @@ export default function Dashboard() {
                 { id: 'goals', label: 'Goals Manager', icon: Target },
                 { id: 'tasks', label: 'Tasks Tracker', icon: CheckCircle2 },
                 { id: 'calendar', label: 'Calendar Grid', icon: Calendar },
+                { id: 'planner', label: 'AI Auto Planner', icon: Sparkles },
                 { id: 'risk', label: 'Risk Analytics', icon: TrendingDown },
                 { id: 'ai', label: 'AI Chief of Staff', icon: Brain },
                 { id: 'settings', label: 'Settings', icon: Settings },
@@ -854,7 +1102,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
               <h1 className="text-base font-extrabold text-slate-800 tracking-tight capitalize">
-                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : currentView === 'risk' ? 'Risk Analytics' : 'Settings'}
+                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : currentView === 'risk' ? 'Risk Analytics' : currentView === 'planner' ? 'AI Auto Planner' : 'Settings'}
               </h1>
             </div>
             
@@ -926,6 +1174,19 @@ export default function Dashboard() {
               onNavigate={setCurrentView}
               selectedGoalId={selectedGoalId}
               setSelectedGoalId={setSelectedGoalId}
+            />
+          )}
+          {currentView === 'planner' && (
+            <AutoPlannerView
+              goals={goals}
+              generateAutoPlan={generateAutoPlan}
+              saveAutoPlan={saveAutoPlan}
+              runReplannerAgent={runReplannerAgent}
+              applyRecoveryProposal={applyRecoveryProposal}
+              rejectRecoveryProposal={rejectRecoveryProposal}
+              selectedGoalId={selectedGoalId}
+              setSelectedGoalId={setSelectedGoalId}
+              onNavigate={setCurrentView}
             />
           )}
           {currentView === 'settings' && (

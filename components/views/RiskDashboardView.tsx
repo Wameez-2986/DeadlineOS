@@ -98,7 +98,7 @@ export default function RiskDashboardView({
     setError('');
     try {
       await runRiskAssessment(goalId);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setError('Analysis failed. Please verify API configuration and try again.');
     } finally {
@@ -122,7 +122,7 @@ export default function RiskDashboardView({
         if (s.completed && s.completedAt) {
           const completedMs = typeof s.completedAt.toMillis === 'function'
             ? s.completedAt.toMillis()
-            : new Date(s.completedAt as any).getTime();
+            : new Date(s.completedAt as unknown as string).getTime();
           if (completedMs >= sevenDaysAgo) {
             velocity++;
           }

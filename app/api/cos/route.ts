@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
       return handleChatAdvisor(body);
     } else if (action === 'predict-risk') {
       return handlePredictRisk(body);
+    } else if (action === 'generate-auto-plan') {
+      return handleGenerateAutoPlan(body);
+    } else if (action === 'replan-schedule') {
+      return handleReplanSchedule(body);
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
@@ -218,6 +222,197 @@ Return a JSON object with this exact structure:
 Rules:
 - Make the risk assessment realistic based on velocity and daysLeft. For example, if there are many pending high-priority tasks and velocity is 0, the risk score should be high.
 - The reasoning should be professional, objective, and analytical (similar to a financial risk audit).`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  const parsed = JSON.parse(text);
+
+  return NextResponse.json({ success: true, data: parsed });
+}
+
+async function handleGenerateAutoPlan(body: {
+  goal: string;
+  deadline: string;
+  description?: string;
+  availableHoursPerDay: number;
+  milestones: Array<{
+    id: string;
+    title: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+    subtasks?: Array<{ id: string; title: string }>;
+  }>;
+}) {
+  const { goal, deadline, description, availableHoursPerDay, milestones } = body;
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.1-flash-lite',
+    safetySettings,
+    generationConfig: {
+      temperature: 0.5,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const deadlineDate = new Date(deadline);
+  const today = new Date();
+  const totalDays = Math.max(1, Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+  const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
+
+  const prompt = `You are an elite schedule optimization AI. Create a highly balanced daily and weekly study/work plan to achieve the following goal within the deadline constraint.
+
+Goal: "${goal}"
+${description ? `Description/Context: "${description}"` : ''}
+Deadline Date: ${deadlineDate.toDateString()} (${totalDays} days / ${totalWeeks} weeks from today)
+Maximum Work Hours Allowed Per Day: ${availableHoursPerDay} hours
+
+Goal Milestones & Subtasks:
+${JSON.stringify(milestones.map(m => ({
+  id: m.id,
+  title: m.title,
+  priority: m.priority,
+  subtasks: m.subtasks?.map(s => ({ id: s.id, title: s.title }))
+})))}
+
+Your task is to:
+1. Estimate the duration (in hours) required for each subtask (e.g. 0.5, 1, 1.5, 2, 2.5 hours).
+2. Schedule these subtasks as "work sessions" distributed across days between day offset 0 (today) and day offset ${totalDays}.
+3. Balance the daily workload so that the sum of session durations on any single day does not exceed ${availableHoursPerDay} hours.
+4. Distribute sessions evenly, prioritizing high-priority milestones earlier in the timeline.
+5. Assign each session to a time slot segment: "morning" (9 AM - 12 PM), "afternoon" (12 PM - 5 PM), or "evening" (5 PM - 9 PM).
+6. Create weekly focus summaries for the plan.
+
+Return a JSON object with this exact structure:
+{
+  "weeklySummaries": [
+    {
+      "weekNumber": 1,
+      "focusTitle": "Focus of week 1 (max 8 words)",
+      "allocatedHours": <number: total scheduled hours in week 1>
+    }
+  ],
+  "sessions": [
+    {
+      "id": "s_${Date.now()}_" + Math.random().toString(36).substring(2, 5),
+      "title": "Clear action-focused session title derived from subtask",
+      "durationHours": <number: estimated hours, e.g. 1.5>,
+      "dayOffset": <number: day index where this session takes place, between 0 and ${totalDays}>,
+      "timeSlot": "morning" | "afternoon" | "evening",
+      "milestoneId": "<id of the matching milestone>",
+      "completed": false
+    }
+  ]
+}
+
+Rules:
+- Distribute sessions logically across the ${totalDays}-day range. Do not frontload everything on day 0.
+- Daily sum of durationHours MUST be less than or equal to ${availableHoursPerDay}. If total work exceeds available time, focus on scheduling the most critical tasks first.
+- The output must be strictly valid JSON.`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  const parsed = JSON.parse(text);
+
+  // Normalize IDs to avoid literal templates returned by LLM
+  if (parsed && Array.isArray(parsed.sessions)) {
+    parsed.sessions = parsed.sessions.map((s: Record<string, unknown>, idx: number) => {
+      const sessionId = typeof s.id === 'string' ? s.id : '';
+      return {
+        ...s,
+        id: sessionId && !sessionId.includes('$') && !sessionId.includes('{') ? sessionId : `session_${Date.now()}_${idx}`
+      };
+    });
+  }
+
+  return NextResponse.json({ success: true, data: parsed });
+}
+
+async function handleReplanSchedule(body: {
+  goal: string;
+  deadline: string;
+  description?: string;
+  availableHoursPerDay: number;
+  sessions: Array<{
+    id: string;
+    title: string;
+    durationHours: number;
+    dayStr: string;
+    timeSlot: 'morning' | 'afternoon' | 'evening';
+    completed: boolean;
+    milestoneId?: string;
+  }>;
+  missedSessions: Array<{
+    id: string;
+    title: string;
+    durationHours: number;
+    dayStr: string;
+    timeSlot: 'morning' | 'afternoon' | 'evening';
+    completed: boolean;
+    milestoneId?: string;
+  }>;
+}) {
+  const { goal, deadline, description, availableHoursPerDay, sessions, missedSessions } = body;
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.1-flash-lite',
+    safetySettings,
+    generationConfig: {
+      temperature: 0.5,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const deadlineDate = new Date(deadline);
+  const today = new Date();
+  const totalDays = Math.max(1, Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+
+  const prompt = `You are an elite schedule recovery and replanning AI.
+The user has missed some scheduled work sessions. Your task is to automatically:
+1. Detect and reschedule all missed work sessions to future dates starting from today (dayOffset 0).
+2. Reprioritize tasks if future days would exceed the daily hour limit of ${availableHoursPerDay} hours.
+3. If all sessions (future + rescheduled missed ones) cannot fit before the current deadline of ${deadlineDate.toDateString()} (in ${totalDays} days) under the available daily capacity, calculate a new recommended deadline as a day offset from today. Otherwise, keep the recommended deadline offset equal to the original deadline of ${totalDays} days from today.
+4. Draft a clear explanation of "Why changes were made" (e.g. details of overload, bottleneck, how many hours were shifted).
+5. Outline a concrete, actionable recovery plan.
+
+Goal Context:
+Goal Title: "${goal}"
+${description ? `Description/Context: "${description}"` : ''}
+Original Target Deadline: ${deadlineDate.toDateString()} (${totalDays} days from today)
+Maximum Capacity: ${availableHoursPerDay} hours per day
+
+Current Active Work Sessions:
+${JSON.stringify(sessions)}
+
+Missed Work Sessions (To Be Rescheduled):
+${JSON.stringify(missedSessions)}
+
+Return a JSON object with this exact structure:
+{
+  "updatedSessions": [
+    {
+      "id": "session_id (must match the original session id exactly)",
+      "title": "session title",
+      "durationHours": <number: estimated hours>,
+      "dayOffset": <number: day index where this session takes place, starting from 0 (today) up to the proposed deadline offset>,
+      "timeSlot": "morning" | "afternoon" | "evening",
+      "completed": false,
+      "milestoneId": "..."
+    }
+  ],
+  "suggestedDeadlineOffset": <number: day offset from today representing the proposed deadline (should be equal to original ${totalDays} unless extension is necessary)>,
+  "explanation": "A natural language explanation detailing: 1. Which tasks were missed, 2. How they were distributed to future slots, 3. Why the new distribution was chosen, 4. If the deadline was updated and why.",
+  "recoveryPlan": [
+    "Actionable recovery step 1 (e.g., 'Focus heavily on Morning blocks this week to clear backlog')",
+    "Actionable recovery step 2",
+    "Actionable recovery step 3"
+  ]
+}
+
+Rules:
+- You MUST preserve all future sessions that are not missed, but you can adjust their dayOffset and timeSlot to keep the schedule balanced.
+- Keep the sum of sessions on any future day <= ${availableHoursPerDay} hours.
+- If it is impossible to fit all work before the original deadline without exceeding the daily limit, extend the deadline (suggestedDeadlineOffset) by the minimum days required.
+- The output must be strictly valid JSON.`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text();
