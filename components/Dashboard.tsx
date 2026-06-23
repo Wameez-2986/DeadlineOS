@@ -9,13 +9,18 @@ import {
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import {
-  Plus, X, Zap, Target, CheckCircle2, Circle, Loader2,
-  Trash2, Brain, Send, LogOut, Calendar, Sparkles,
-  ChevronRight, MoreVertical, TrendingUp, Clock,
-  MessageSquare, Menu, Home, AlertTriangle
+  Plus, X, Zap, Target, CheckCircle2, Loader2,
+  Trash2, Brain, Send, LogOut, Calendar, Sparkles, MoreVertical, TrendingUp, Clock, Menu, Home, AlertTriangle, Search, Settings
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+
+import MainDashboardView from './views/MainDashboardView';
+import GoalsView from './views/GoalsView';
+import TasksView from './views/TasksView';
+import CalendarView from './views/CalendarView';
+import AIAssistantView from './views/AIAssistantView';
+import SettingsView from './views/SettingsView';
 
 /* ─────────────────────────────────────────────────
    TYPES
@@ -394,6 +399,7 @@ export default function Dashboard() {
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [activeTab, setActiveTab] = useState<'milestones' | 'chat'>('milestones');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings'>('dashboard');
 
   // Real-time Firestore listener — no orderBy so no composite index needed;
   // we sort client-side by createdAt instead.
@@ -499,6 +505,36 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Main Navigation */}
+            <div className="px-3 py-3 border-b border-slate-100/80 space-y-1 shrink-0">
+              {([
+                { id: 'dashboard', label: 'Dashboard', icon: Home },
+                { id: 'goals', label: 'Goals Manager', icon: Target },
+                { id: 'tasks', label: 'Tasks Tracker', icon: CheckCircle2 },
+                { id: 'calendar', label: 'Calendar Grid', icon: Calendar },
+                { id: 'ai', label: 'AI Chief of Staff', icon: Brain },
+                { id: 'settings', label: 'Settings', icon: Settings },
+              ] as const).map((item) => {
+                const Icon = item.icon;
+                const isActive = currentView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { setCurrentView(item.id); setSidebarOpen(false); }}
+                    className="flex items-center gap-2.5 w-full px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer"
+                    style={{
+                      background: isActive ? 'rgba(99,102,241,0.06)' : 'transparent',
+                      color: isActive ? '#4F46E5' : '#64748B',
+                      border: isActive ? '1px solid rgba(99,102,241,0.15)' : '1px solid transparent',
+                    }}
+                  >
+                    <Icon size={14} className={isActive ? 'text-indigo-600' : 'text-slate-400'} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Goals list */}
             <div className="flex-1 overflow-y-auto py-3 px-3 no-scrollbar">
               <div className="flex items-center justify-between px-2 mb-2">
@@ -545,11 +581,12 @@ export default function Dashboard() {
                         id={`goal-item-${goal.id}`}
                         role="button"
                         tabIndex={0}
-                        onClick={() => { setSelectedGoalId(goal.id); setSidebarOpen(false); }}
+                        onClick={() => { setSelectedGoalId(goal.id); setCurrentView('goals'); setSidebarOpen(false); }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             setSelectedGoalId(goal.id);
+                            setCurrentView('goals');
                             setSidebarOpen(false);
                           }
                         }}
@@ -618,19 +655,22 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
-              {selectedGoal ? (
-                <>
-                  <div>
-                    <h1 className="font-bold text-slate-800 text-base leading-tight truncate max-w-xs">
-                      {selectedGoal.title}
-                    </h1>
-                    <p className="text-xs text-slate-400">Deadline: {formatDate(selectedGoal.deadline)}</p>
-                  </div>
-                </>
-              ) : (
-                <h1 className="font-bold text-slate-800 text-lg">Dashboard</h1>
-              )}
+              <h1 className="text-base font-extrabold text-slate-800 tracking-tight capitalize">
+                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : 'Settings'}
+              </h1>
             </div>
+            
+            {/* Top command bar */}
+            <div className="hidden md:flex items-center w-80 relative">
+              <Search size={14} className="absolute left-3.5 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search command or navigate..."
+                onClick={() => { if (currentView !== 'goals') setCurrentView('goals'); }}
+                className="w-full glass-input pl-9 pr-3 py-1.5 text-xs text-slate-700 bg-white/50 placeholder:text-slate-400"
+              />
+            </div>
+
             <div className="flex items-center gap-2">
               <Button
                 id="header-new-goal"
@@ -643,220 +683,45 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* Content */}
-        {!selectedGoal ? (
-          /* EMPTY STATE */
-          <div className="flex-1 flex items-center justify-center px-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center max-w-md"
-            >
-              <div
-                className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6"
-                style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.06))' }}
-              >
-                <Target size={36} className="text-indigo-400" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-800 mb-2">
-                {goals.length === 0 ? 'Set your first goal' : 'Select a goal'}
-              </h2>
-              <p className="text-slate-500 text-sm mb-6">
-                {goals.length === 0
-                  ? 'Create a goal and let AI build you a milestone roadmap to hit your deadline.'
-                  : 'Choose a goal from the sidebar to see your milestones and chat with your AI advisor.'}
-              </p>
-              {goals.length === 0 && (
-                <button
-                  id="empty-new-goal"
-                  onClick={() => setShowNewGoal(true)}
-                  className="btn-primary mx-auto"
-                >
-                  <Sparkles size={16} /> Create Goal with AI
-                </button>
-              )}
-            </motion.div>
-          </div>
-        ) : (
-          /* GOAL DETAIL */
-          <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-
-            {/* Left panel: Urgency + Milestones */}
-            <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
-
-              {/* Stats row */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-
-                {/* Urgency ring */}
-                <div className="glass-panel p-5 flex flex-col items-center justify-center col-span-1">
-                  <UrgencyRing
-                    completed={selectedGoal.milestones.filter((m) => m.completed).length}
-                    total={selectedGoal.milestones.length}
-                    deadline={selectedGoal.deadline}
-                    urgencyLevel={selectedGoal.urgencyLevel}
-                  />
-                </div>
-
-                {/* Overview */}
-                <div className="glass-panel p-5 col-span-1 lg:col-span-2">
-                  <p className="label-luxury mb-2">AI Overview</p>
-                  {selectedGoal.overview ? (
-                    <p className="text-sm text-slate-600 leading-relaxed">{selectedGoal.overview}</p>
-                  ) : (
-                    <p className="text-sm text-slate-400 italic">No overview available.</p>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 size={14} className="text-green-500" />
-                      <span className="text-xs text-slate-600 font-medium">
-                        {selectedGoal.milestones.filter((m) => m.completed).length} completed
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Circle size={14} className="text-slate-300" />
-                      <span className="text-xs text-slate-600 font-medium">
-                        {selectedGoal.milestones.filter((m) => !m.completed).length} remaining
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Calendar size={14} className="text-indigo-400" />
-                      <span className="text-xs text-slate-600 font-medium">
-                        Due {formatDate(selectedGoal.deadline)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tabs */}
-              <div className="flex gap-1 p-1 rounded-xl mb-5 w-fit" style={{ background: 'rgba(241, 245, 249, 0.8)' }}>
-                {(['milestones', 'chat'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    id={`tab-${tab}`}
-                    onClick={() => setActiveTab(tab)}
-                    className="flex items-center gap-1.5 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-200"
-                    style={{
-                      background: activeTab === tab ? '#fff' : 'transparent',
-                      color: activeTab === tab ? '#4F46E5' : '#64748B',
-                      boxShadow: activeTab === tab ? '0 1px 4px rgba(30,41,59,0.08)' : 'none',
-                    }}
-                  >
-                    {tab === 'milestones' ? <><CheckCircle2 size={14} /> Milestones</> : <><MessageSquare size={14} /> AI Chat</>}
-                  </button>
-                ))}
-              </div>
-
-              <AnimatePresence mode="wait">
-                {activeTab === 'milestones' ? (
-                  <motion.div
-                    key="milestones"
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 8 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {selectedGoal.milestones.length === 0 ? (
-                      <div className="text-center py-12">
-                        <p className="text-slate-400 text-sm">No milestones generated yet.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {selectedGoal.milestones.map((m, i) => (
-                          <motion.div
-                            key={m.id}
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.04 }}
-                            className="glass-panel-sm p-4"
-                            style={{ opacity: m.completed ? 0.7 : 1 }}
-                          >
-                            <div className="flex items-start gap-3">
-                              {/* Checkbox */}
-                              <button
-                                id={`milestone-check-${m.id}`}
-                                onClick={() => toggleMilestone(selectedGoal.id, selectedGoal.milestones, m.id)}
-                                className="mt-0.5 flex-shrink-0"
-                              >
-                                <div className={`milestone-checkbox ${m.completed ? 'checked' : ''}`}>
-                                  {m.completed && <CheckCircle2 size={11} className="text-white" />}
-                                </div>
-                              </button>
-
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2 mb-1">
-                                  <h4 className={`text-sm font-semibold ${m.completed ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                                    {m.title}
-                                  </h4>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <span
-                                      className="w-2 h-2 rounded-full flex-shrink-0"
-                                      style={{ background: priorityDot[m.priority] ?? '#94A3B8' }}
-                                      title={`${m.priority} priority`}
-                                    />
-                                    <span className="text-xs text-slate-400">Day {m.daysFromStart}</span>
-                                  </div>
-                                </div>
-                                <p className={`text-xs leading-relaxed ${m.completed ? 'text-slate-300' : 'text-slate-500'}`}>
-                                  {m.description}
-                                </p>
-                                {!m.completed && m.suggestions?.length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5 mt-2">
-                                    {m.suggestions.map((s, si) => (
-                                      <span
-                                        key={si}
-                                        className="text-xs px-2.5 py-0.5 rounded-full text-indigo-600 font-medium"
-                                        style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.12)' }}
-                                      >
-                                        {s}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    )}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="chat"
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -8 }}
-                    transition={{ duration: 0.2 }}
-                    className="glass-panel overflow-hidden"
-                    style={{ height: '520px' }}
-                  >
-                    <div
-                      className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100"
-                      style={{ background: 'rgba(99,102,241,0.04)' }}
-                    >
-                      <div
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
-                      >
-                        <Brain size={13} className="text-white" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">AI Chief of Staff</p>
-                        <p className="text-xs text-green-500 font-medium flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                          Online
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ height: 'calc(100% - 52px)' }}>
-                      <ChatPanel goal={selectedGoal} />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        )}
+        {/* Content Views Switch */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {currentView === 'dashboard' && (
+            <MainDashboardView
+              goals={goals}
+              onNavigate={setCurrentView}
+              onSelectGoal={setSelectedGoalId}
+            />
+          )}
+          {currentView === 'goals' && (
+            <GoalsView
+              goals={goals}
+              selectedGoalId={selectedGoalId}
+              setSelectedGoalId={setSelectedGoalId}
+              setShowNewGoal={setShowNewGoal}
+              toggleMilestone={toggleMilestone}
+              deleteGoal={deleteGoal}
+            />
+          )}
+          {currentView === 'tasks' && (
+            <TasksView
+              goals={goals}
+              toggleMilestone={toggleMilestone}
+            />
+          )}
+          {currentView === 'calendar' && (
+            <CalendarView
+              goals={goals}
+            />
+          )}
+          {currentView === 'ai' && (
+            <AIAssistantView
+              goals={goals}
+            />
+          )}
+          {currentView === 'settings' && (
+            <SettingsView />
+          )}
+        </div>
       </div>
 
       {/* New Goal Modal */}
