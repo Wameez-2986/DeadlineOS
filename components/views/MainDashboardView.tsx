@@ -2,44 +2,18 @@
 
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import {
-  TrendingUp, Calendar, CheckCircle2, Circle, Clock,
-  Sparkles, Brain, ArrowUpRight, ChevronRight, Target
-} from 'lucide-react';
+import { TrendingUp, Calendar, CheckCircle2, Sparkles, Brain, ArrowUpRight, Target, ChevronRight, Zap } from 'lucide-react';
 import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  userId: string;
-}
+import { Goal, Milestone, ViewType } from '@/lib/types';
 
 interface MainDashboardViewProps {
   goals: Goal[];
-  onNavigate: (view: 'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings') => void;
+  onNavigate: (view: ViewType) => void;
   onSelectGoal: (id: string) => void;
 }
 
 export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: MainDashboardViewProps) {
-  // Statistics Calculations
   const stats = useMemo(() => {
     let totalMilestones = 0;
     let completedMilestones = 0;
@@ -63,7 +37,6 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
 
     const completionRate = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
     
-    // Custom logic to yield a realistic "productivity score" based on completion + priority weights
     const productivityScore = totalMilestones > 0 
       ? Math.min(100, Math.round((completedMilestones / totalMilestones) * 90 + (goals.length > 0 ? 10 : 0)))
       : 0;
@@ -78,7 +51,6 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
     };
   }, [goals]);
 
-  // Today's Tasks: Get first 3 uncompleted milestones across all goals to show as "today's priorities"
   const todaysTasks = useMemo(() => {
     const list: Array<{ goalId: string; goalTitle: string; milestone: Milestone }> = [];
     goals.forEach((goal) => {
@@ -95,7 +67,6 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
     return list;
   }, [goals]);
 
-  // Toggle milestone completion directly from dashboard widget
   const handleToggleMilestone = async (goalId: string, milestoneId: string, completed: boolean) => {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) return;
@@ -108,12 +79,11 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
 
     try {
       await updateDoc(doc(db, 'goals', goalId), { milestones: updatedMilestones });
-    } catch (err) {
-      console.error('Error updating milestone:', err);
+    } catch {
+      // Ignored
     }
   };
 
-  // Upcoming Deadlines (sorted by closest deadline)
   const upcomingGoals = useMemo(() => {
     const today = new Date().getTime();
     return [...goals]
@@ -126,7 +96,6 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
       .slice(0, 3);
   }, [goals]);
 
-  // Urgency indicator styling
   const getUrgencyStyles = (daysLeft: number, urgency?: string) => {
     if (daysLeft < 3 || urgency === 'critical') {
       return { border: 'border-rose-100 dark:border-rose-950/20 bg-rose-50/50', text: 'text-rose-600', dot: '#F43F5E' };
@@ -140,7 +109,8 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
   return (
     <div className="flex-1 overflow-y-auto p-6 no-scrollbar space-y-6">
       
-      {/* ── HEADER & WELCOME ────────────────────────────── */}
+
+      
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Workspace Overview</h1>
@@ -154,11 +124,9 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
         </button>
       </div>
 
-      {/* ── BENTO GRID ──────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         
-        {/* WIDGET 1: PRODUCTIVITY SCORE */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[220px]">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-55">
           <div className="flex items-center justify-between">
             <span className="label-luxury">Productivity Index</span>
             <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
@@ -167,8 +135,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
           
           <div className="flex items-center gap-6 my-auto">
-            {/* Visual Circular Gauge */}
-            <div className="relative w-24 h-24 flex-shrink-0">
+            <div className="relative w-24 h-24 shrink-0">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path
                   className="text-slate-100"
@@ -198,7 +165,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-800">Excellent Velocity</p>
               <p className="text-xs text-slate-500 leading-normal">
-                You've completed {stats.completedMilestones} of {stats.totalMilestones} milestones across active roadmaps.
+                You&apos;ve completed {stats.completedMilestones} of {stats.totalMilestones} milestones across active roadmaps.
               </p>
             </div>
           </div>
@@ -209,10 +176,9 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
         </div>
 
-        {/* WIDGET 2: TODAY'S TASKS Checklist */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[220px] md:col-span-1 lg:col-span-2">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-55 md:col-span-1 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
-            <span className="label-luxury">Today's Focus List</span>
+            <span className="label-luxury">Today&apos;s Focus List</span>
             <button 
               onClick={() => onNavigate('tasks')}
               className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-0.5"
@@ -221,7 +187,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[140px] pr-1">
+          <div className="flex-1 overflow-y-auto space-y-2.5 max-h-35 pr-1">
             {todaysTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-4 text-center">
                 <CheckCircle2 size={24} className="text-green-400 mb-1.5" />
@@ -258,8 +224,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
         </div>
 
-        {/* WIDGET 3: UPCOMING DEADLINES */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[240px]">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-60">
           <div>
             <div className="flex items-center justify-between mb-4">
               <span className="label-luxury">Upcoming Deadlines</span>
@@ -284,7 +249,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
                           {g.milestones.filter(m => m.completed).length}/{g.milestones.length} Milestones
                         </p>
                       </div>
-                      <div className="text-right flex-shrink-0">
+                      <div className="text-right shrink-0">
                         <p className={`text-xs font-bold ${style.text}`}>
                           {g.daysLeft < 0 ? 'Overdue' : `${g.daysLeft}d left`}
                         </p>
@@ -297,15 +262,14 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
         </div>
 
-        {/* WIDGET 4: GOAL PROGRESS OVERVIEWS */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[240px]">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-60">
           <div>
             <div className="flex items-center justify-between mb-4">
               <span className="label-luxury">Goal Progress Tracker</span>
               <Target size={15} className="text-slate-400" />
             </div>
 
-            <div className="space-y-3.5 max-h-[160px] overflow-y-auto pr-1">
+            <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
               {goals.length === 0 ? (
                 <p className="text-xs text-slate-400 italic py-6 text-center">No goals tracked yet.</p>
               ) : (
@@ -321,7 +285,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
                       </div>
                       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                         <div 
-                          className="h-full rounded-full bg-indigo-600 transition-all duration-500" 
+                          className="h-full rounded-full bg-indigo-600 transition-all duration-550" 
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -333,10 +297,9 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
         </div>
 
-        {/* WIDGET 5: AI RECOMMENDATIONS */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[240px]">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-60">
           <div className="flex items-center gap-1.5">
-            <span className="p-1 rounded-lg bg-amber-50 text-amber-500 flex-shrink-0">
+            <span className="p-1 rounded-lg bg-amber-50 text-amber-500 shrink-0">
               <Brain size={14} />
             </span>
             <span className="label-luxury">AI Recommendations</span>
@@ -362,7 +325,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
             ) : (
               <div className="space-y-1.5">
                 <p className="text-xs text-slate-700 leading-relaxed">
-                  ✨ **All Clear**: You're following your schedule accurately. Consider starting on early tasks for upcoming goals to stay ahead of timeline spikes.
+                  ✨ **All Clear**: You&apos;re following your schedule accurately. Consider starting on early tasks for upcoming goals to stay ahead of timeline spikes.
                 </p>
               </div>
             )}
@@ -376,14 +339,13 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </button>
         </div>
 
-        {/* WIDGET 6: WEEKLY PROGRESS CHART */}
-        <div className="glass-panel p-5 flex flex-col justify-between min-h-[220px] md:col-span-2 lg:col-span-3">
+        <div className="glass-panel p-5 flex flex-col justify-between min-h-55 md:col-span-2 lg:col-span-3">
           <div className="flex items-center justify-between">
             <span className="label-luxury">Weekly Activity Track</span>
             <span className="text-xs font-semibold text-slate-400">Last 7 Days</span>
           </div>
 
-          <div className="flex items-end justify-between h-[100px] px-4 mt-3">
+          <div className="flex items-end justify-between h-25 px-4 mt-3">
             {[
               { day: 'Mon', completed: 2, height: '40%' },
               { day: 'Tue', completed: 4, height: '70%' },
@@ -394,7 +356,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
               { day: 'Sun', completed: 2, height: '40%' }
             ].map((d, i) => (
               <div key={i} className="flex flex-col items-center gap-2 w-[10%] group">
-                <div className="relative w-full h-[65px] bg-slate-50/50 rounded-lg flex items-end overflow-hidden border border-slate-100/30">
+                <div className="relative w-full h-16.25 bg-slate-50/50 rounded-lg flex items-end overflow-hidden border border-slate-100/30">
                   <motion.div
                     initial={{ height: 0 }}
                     animate={{ height: d.height }}

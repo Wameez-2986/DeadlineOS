@@ -2,76 +2,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Brain, Send, Sparkles, AlertCircle, RefreshCw,
-  Clock, Zap, CheckCircle2, ChevronRight, MessageSquare
-} from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  status?: 'todo' | 'in_progress' | 'done';
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string; // ISO date string
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  userId: string;
-}
-
-interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  ts: number;
-}
+import { Brain, Send } from 'lucide-react';
+import { Goal, ChatMessage } from '@/lib/types';
+import { useAuth } from '@/context/AuthContext';
 
 interface AIAssistantViewProps {
   goals: Goal[];
 }
 
 export default function AIAssistantView({ goals }: AIAssistantViewProps) {
+  const { user } = useAuth();
   const [selectedGoalId, setSelectedGoalId] = useState<string>('all');
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
@@ -84,22 +24,18 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Selected goal context helper
   const selectedGoal = goals.find(g => g.id === selectedGoalId) ?? null;
 
-  // Days left helper
   const daysLeft = (dateStr: string) => {
     const deadline = new Date(dateStr);
     const today = new Date();
     return Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
   };
 
-  // Context-switching handler
   const changeContext = (id: string) => {
     setSelectedGoalId(id);
     const targetGoal = goals.find(g => g.id === id) ?? null;
@@ -122,7 +58,6 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
     }
   };
 
-  // Strategic prompt templates
   const templates = [
     { label: "Analyze Timeline Risk", prompt: "Identify any high priority milestones that are in danger of causing a delay, and provide unblocking actions." },
     { label: "Draft Focus Plan", prompt: "List my top 3 actionable focus items for today based on active milestones." },
@@ -139,7 +74,6 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
     const userMsg: ChatMessage = { role: 'user', text, ts: messages.length + 1 };
     setMessages(prev => [...prev, userMsg]);
 
-    // Construct body parameters matching API expectation
     const goalTitle = selectedGoal ? selectedGoal.title : "DeadlineOS Workspace";
     const goalDeadline = selectedGoal ? selectedGoal.deadline : new Date().toISOString();
     const milestones = selectedGoal ? selectedGoal.milestones.map(m => ({
@@ -149,9 +83,13 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
     })) : [];
 
     try {
+      const token = user ? await user.getIdToken() : '';
       const res = await fetch('/api/cos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           action: 'chat-advisor',
           message: text,
@@ -177,14 +115,12 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
       
-      {/* ── LEFT CELL: CONTEXT SELECTOR ───────────────────── */}
       <div className="w-full md:w-72 border-r border-slate-200/60 bg-white/40 backdrop-blur-md p-4 flex flex-col space-y-4">
         <div>
           <h2 className="text-sm font-bold text-slate-800 tracking-tight">AI Advisor Context</h2>
           <p className="text-[11px] text-slate-400">Select which active goal context the AI should focus on.</p>
         </div>
 
-        {/* Goal context select list */}
         <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar">
           <div
             onClick={() => changeContext('all')}
@@ -217,10 +153,8 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
         </div>
       </div>
 
-      {/* ── RIGHT CELL: CHAT INTERFACE ─────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/20">
         
-        {/* Chat Header */}
         <div 
           className="flex items-center gap-2.5 px-6 py-4 border-b border-slate-150 bg-white/60 backdrop-blur-md"
         >
@@ -239,7 +173,6 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
           </div>
         </div>
 
-        {/* Messages Stream */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
           {messages.map((msg, i) => (
             <motion.div
@@ -272,7 +205,6 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Prompt Templates Drawer */}
         <div className="px-6 py-2 bg-white/40 border-t border-slate-100 flex flex-wrap gap-2">
           {templates.map((t, idx) => (
             <button
@@ -286,7 +218,6 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
           ))}
         </div>
 
-        {/* Chat Input Bar */}
         <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-2">
           <input
             type="text"
@@ -300,7 +231,7 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
           <button
             onClick={() => handleSend()}
             disabled={sending || !input.trim()}
-            className="btn-primary p-3 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer"
+            className="btn-primary p-3 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
             style={{ width: '40px', height: '40px', padding: '0' }}
           >
             <Send size={14} className="text-white" />

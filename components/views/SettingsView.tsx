@@ -3,16 +3,13 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  User, Bell, Shield, Sliders, Calendar, MessageSquare, 
-  Key, Save, CheckCircle2, ChevronRight, Settings
+  User, Bell, Calendar, MessageSquare, Key, Save, CheckCircle2, ChevronRight, Settings
 } from 'lucide-react';
 
 export default function SettingsView() {
   const { user } = useAuth();
   
-  // Settings States
   const [profileName, setProfileName] = useState(user?.displayName || 'Chief of Staff');
-  const [emailAlerts, setEmailAlerts] = useState(true);
   const [slackAlerts, setSlackAlerts] = useState(false);
   const [googleCalendarSync, setGoogleCalendarSync] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -31,7 +28,6 @@ export default function SettingsView() {
   return (
     <div className="flex-1 overflow-y-auto p-6 no-scrollbar space-y-6 max-w-4xl">
       
-      {/* ── HEADER ──────────────────────────────────────── */}
       <div className="flex items-center justify-between border-b border-slate-100 pb-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Settings</h1>
@@ -47,10 +43,8 @@ export default function SettingsView() {
         </button>
       </div>
 
-      {/* ── SETTINGS PANELS ─────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Navigation Sidebar inside Settings */}
         <div className="md:col-span-1 space-y-1 bg-white/40 border border-slate-200/50 rounded-2xl p-3 h-fit">
           <button className="flex items-center justify-between w-full px-3 py-2 text-xs font-bold text-indigo-600 bg-indigo-50/50 border border-indigo-100 rounded-xl cursor-pointer">
             <span className="flex items-center gap-2"><User size={13} /> Profile Settings</span>
@@ -66,10 +60,8 @@ export default function SettingsView() {
           </button>
         </div>
 
-        {/* Content Pane */}
         <div className="md:col-span-2 space-y-6">
           
-          {/* PROFILE SECTION */}
           <div className="glass-panel p-5 space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
               <User size={15} className="text-indigo-600" />
@@ -101,7 +93,6 @@ export default function SettingsView() {
             </div>
           </div>
 
-          {/* INTEGRATIONS SECTION */}
           <div className="glass-panel p-5 space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
               <Settings size={15} className="text-indigo-600" />
@@ -109,7 +100,6 @@ export default function SettingsView() {
             </div>
 
             <div className="space-y-3.5">
-              {/* Google Calendar */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <span className="p-2 rounded-xl bg-blue-50 text-blue-600 mt-0.5">
@@ -130,7 +120,6 @@ export default function SettingsView() {
                 </button>
               </div>
 
-              {/* Slack Notifications */}
               <div className="flex items-center justify-between gap-4 pt-3.5 border-t border-slate-100">
                 <div className="flex items-start gap-3">
                   <span className="p-2 rounded-xl bg-rose-50 text-rose-500 mt-0.5">
@@ -153,7 +142,6 @@ export default function SettingsView() {
             </div>
           </div>
 
-          {/* SECURITY & API KEYS */}
           <div className="glass-panel p-5 space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
               <Key size={15} className="text-indigo-600" />

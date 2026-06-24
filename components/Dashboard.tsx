@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
+  collection, addDoc, updateDoc, deleteDoc, doc, setDoc,
   onSnapshot, query, where, serverTimestamp, Timestamp
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import {
   Plus, X, Zap, Target, CheckCircle2, Loader2,
-  Trash2, Brain, Send, LogOut, Calendar, Sparkles, MoreVertical, TrendingUp, TrendingDown, Clock, Menu, Home, AlertTriangle, Search, Settings
+  Trash2, Brain, LogOut, Calendar, Sparkles, TrendingDown, Home, Search, Settings, Menu
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -23,125 +23,15 @@ import AIAssistantView from './views/AIAssistantView';
 import SettingsView from './views/SettingsView';
 import RiskDashboardView from './views/RiskDashboardView';
 import AutoPlannerView from './views/AutoPlannerView';
+import FloatingVoiceAssistant from './FloatingVoiceAssistant';
 
-/* ─────────────────────────────────────────────────
-   TYPES
-   ───────────────────────────────────────────────── */
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  status?: 'todo' | 'in_progress' | 'done';
-}
+import {
+  Goal, Milestone, WeeklyObjective, AutoPlan,
+  RecoveryProposal, RawSession, RawWeeklySummary, GoalData, RiskAnalysis, ViewType
+} from '@/lib/types';
 
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string; // ISO date string
-}
-
-interface WorkSession {
-  id: string;
-  title: string;
-  durationHours: number;
-  dayStr: string; // YYYY-MM-DD
-  timeSlot: 'morning' | 'afternoon' | 'evening';
-  completed: boolean;
-  milestoneId?: string;
-}
-
-interface WeeklyPlanSummary {
-  weekNumber: number;
-  focusTitle: string;
-  allocatedHours: number;
-}
-
-interface AutoPlan {
-  sessions: WorkSession[];
-  weeklySummaries: WeeklyPlanSummary[];
-  availableHoursPerDay: number;
-  generatedAt: string;
-}
-
-interface RecoveryProposal {
-  beforeSessions: WorkSession[];
-  updatedSessions: WorkSession[];
-  explanation: string;
-  recoveryPlan: string[];
-  suggestedDeadline: string; // YYYY-MM-DD
-  originalDeadline: string; // YYYY-MM-DD
-  generatedAt: string;
-}
-
-interface RawSession {
-  id: string;
-  title: string;
-  durationHours: number;
-  dayOffset: number;
-  timeSlot?: 'morning' | 'afternoon' | 'evening';
-  completed: boolean;
-  milestoneId?: string;
-}
-
-interface RawWeeklySummary {
-  weekNumber: number;
-  focusTitle: string;
-  allocatedHours: number;
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string; // ISO date string
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  autoPlan?: AutoPlan;
-  recoveryProposal?: RecoveryProposal;
-  userId: string;
-}
-
-interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  ts: number;
-}
-
-/* ─────────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────────── */
-function daysLeft(deadline: string): number {
-  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 86400000));
+function daysLeft(deadline: string, now: number): number {
+  return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 86400000));
 }
 
 function urgencyColor(level?: string, days?: number): string {
@@ -151,57 +41,6 @@ function urgencyColor(level?: string, days?: number): string {
   return '#22C55E';
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-/* ─────────────────────────────────────────────────
-   URGENCY RING
-───────────────────────────────────────────────── */
-function UrgencyRing({ completed, total, deadline, urgencyLevel }: {
-  completed: number; total: number; deadline: string; urgencyLevel?: string;
-}) {
-  const pct = total === 0 ? 0 : completed / total;
-  const r = 40;
-  const circ = 2 * Math.PI * r;
-  const dash = circ * pct;
-  const days = daysLeft(deadline);
-  const color = urgencyColor(urgencyLevel, days);
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="relative w-28 h-28">
-        <svg viewBox="0 0 96 96" className="w-28 h-28 -rotate-90">
-          <circle cx="48" cy="48" r={r} fill="none" stroke="#E2E8F0" strokeWidth="8" />
-          <circle
-            cx="48" cy="48" r={r}
-            fill="none" stroke={color} strokeWidth="8"
-            strokeDasharray={`${dash} ${circ}`}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dasharray 0.6s ease' }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-bold text-slate-800">{Math.round(pct * 100)}%</span>
-          <span className="text-xs text-slate-400">done</span>
-        </div>
-      </div>
-      <div className="text-center">
-        <div
-          className="text-2xl font-bold"
-          style={{ color }}
-        >
-          {days}
-        </div>
-        <div className="text-xs text-slate-400 uppercase tracking-wide">days left</div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────
-   NEW GOAL MODAL
-───────────────────────────────────────────────── */
 function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { user } = useAuth();
   const [title, setTitle] = useState('');
@@ -212,7 +51,8 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [error, setError] = useState('');
 
   const minDeadline = (() => {
-    const d = new Date(); d.setDate(d.getDate() + 1);
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
     return d.toISOString().split('T')[0];
   })();
 
@@ -235,24 +75,29 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   }, [loading]);
 
   const handleCreate = async () => {
-    if (!title.trim() || !deadline) { setError('Please fill in the goal and deadline.'); return; }
+    if (!title.trim() || !deadline) {
+      setError('Please fill in the goal and deadline.');
+      return;
+    }
     if (!user) return;
     setLoadingStep(0);
     setLoading(true);
     setError('');
 
     try {
-      // Decompose goal via Gemini API
+      const token = user ? await user.getIdToken() : '';
       const res = await fetch('/api/cos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ action: 'generate-milestones', goal: title, deadline, description }),
       });
       const json = await res.json();
       if (!json.success) throw new Error('AI decomposition failed');
 
       setLoadingStep(4);
-      // Brief pause to allow user to see "Securing in Firestore" step
       await new Promise((resolve) => setTimeout(resolve, 800));
 
       const rawMilestones = (json.data?.milestones ?? []).map((m: {
@@ -376,7 +221,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             id="goal-create"
             onClick={handleCreate}
             disabled={loading}
-            className="btn-primary mt-2 justify-center py-3.5 h-auto text-sm font-semibold flex items-center justify-center"
+            className="btn-primary mt-2 justify-center py-3.5 h-auto text-sm font-semibold flex items-center"
             style={{ width: '100%' }}
           >
             {loading ? (
@@ -401,138 +246,6 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   );
 }
 
-/* ─────────────────────────────────────────────────
-   CHAT PANEL
-───────────────────────────────────────────────── */
-function ChatPanel({ goal }: { goal: Goal }) {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    {
-      role: 'model',
-      text: `I'm your AI Chief of Staff for "${goal.title}". You have ${daysLeft(goal.deadline)} days left. What's on your mind?`,
-      ts: Date.now(),
-    }
-  ]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const sendMessage = async () => {
-    const text = input.trim();
-    if (!text || sending) return;
-    setInput('');
-    setSending(true);
-
-    const userMsg: ChatMessage = { role: 'user', text, ts: Date.now() };
-    setMessages((m) => [...m, userMsg]);
-
-    try {
-      const res = await fetch('/api/cos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'chat-advisor',
-          message: text,
-          goal: goal.title,
-          deadline: goal.deadline,
-          milestones: goal.milestones.map((m) => ({
-            title: m.title,
-            completed: m.completed,
-            daysFromStart: m.daysFromStart,
-          })),
-          history: messages.map((m) => ({ role: m.role, text: m.text })),
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setMessages((m) => [...m, { role: 'model', text: json.reply, ts: Date.now() }]);
-      }
-    } catch {
-      setMessages((m) => [...m, { role: 'model', text: 'I had trouble connecting. Please try again.', ts: Date.now() }]);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 no-scrollbar">
-        {messages.map((msg, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={msg.role === 'user' ? 'self-end' : 'self-start'}
-            style={{ maxWidth: '85%' }}
-          >
-            {msg.role === 'model' && (
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <div
-                  className="w-5 h-5 rounded-full flex items-center justify-center"
-                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
-                >
-                  <Zap size={10} className="text-white" />
-                </div>
-                <span className="text-xs font-semibold text-slate-500">AI Chief of Staff</span>
-              </div>
-            )}
-            <div className={msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}>
-              {msg.text}
-            </div>
-          </motion.div>
-        ))}
-        {sending && (
-          <div className="self-start">
-            <div className="chat-bubble-ai flex items-center gap-2">
-              <div className="flex gap-1">
-                {[0, 0.15, 0.3].map((d) => (
-                  <span
-                    key={d}
-                    className="w-1.5 h-1.5 rounded-full bg-slate-400"
-                    style={{ animation: `pulse 1s ease-in-out ${d}s infinite` }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="p-3 border-t border-slate-100">
-        <div className="flex gap-2">
-          <input
-            id="chat-input"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder="Ask your Chief of Staff…"
-            className="glass-input flex-1 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400"
-          />
-          <button
-            id="chat-send"
-            onClick={sendMessage}
-            disabled={sending || !input.trim()}
-            className="btn-primary px-3 py-2.5"
-            style={{ minWidth: '42px' }}
-          >
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────
-   MAIN DASHBOARD
-───────────────────────────────────────────────── */
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -541,12 +254,18 @@ export default function Dashboard() {
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [showNewGoal, setShowNewGoal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'milestones' | 'chat'>('milestones');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk' | 'planner'>('dashboard');
+  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [now] = useState(() => Date.now());
 
-  // Real-time Firestore listener — no orderBy so no composite index needed;
-  // we sort client-side by createdAt instead.
+
+
+  const selectedGoalIdRef = useRef(selectedGoalId);
+
+  useEffect(() => {
+    selectedGoalIdRef.current = selectedGoalId;
+  }, [selectedGoalId]);
+
   useEffect(() => {
     if (!user) return;
     const q = query(
@@ -561,25 +280,20 @@ export default function Dashboard() {
           .sort((a, b) => {
             const aMs = a.createdAt?.toMillis?.() ?? 0;
             const bMs = b.createdAt?.toMillis?.() ?? 0;
-            return bMs - aMs; // newest first
+            return bMs - aMs;
           });
         setGoals(docs);
         setGoalsLoading(false);
-        // Auto-select first goal if none selected
-        if (docs.length > 0 && !selectedGoalId) {
+        if (docs.length > 0 && !selectedGoalIdRef.current) {
           setSelectedGoalId(docs[0].id);
         }
       },
-      (error) => {
-        // Always stop the loading skeleton, even on Firestore errors
-        console.error('Firestore snapshot error:', error.code, error.message);
+      () => {
         setGoalsLoading(false);
       }
     );
     return () => unsub();
   }, [user]);
-
-  const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
 
   const toggleMilestone = useCallback(async (goalId: string, milestones: Milestone[], milestoneId: string) => {
     const updated = milestones.map((m) =>
@@ -603,7 +317,6 @@ export default function Dashboard() {
           completedAt: completed ? Timestamp.now() : null
         };
       });
-      // Automatically toggle milestone completion if all subtasks are complete
       const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every((st) => st.completed);
       return {
         ...m,
@@ -641,7 +354,6 @@ export default function Dashboard() {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) return;
 
-    // Calculate velocity: count of subtasks completed in the last 7 days
     let velocity = 0;
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     goal.milestones.forEach((m) => {
@@ -658,9 +370,13 @@ export default function Dashboard() {
     });
 
     try {
+      const token = user ? await user.getIdToken() : '';
       const res = await fetch('/api/cos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           action: 'predict-risk',
           goal: goal.title,
@@ -695,7 +411,6 @@ export default function Dashboard() {
 
       await updateDoc(doc(db, 'goals', goalId), { riskAnalysis: riskData });
     } catch (err) {
-      console.error('Error running risk assessment:', err);
       throw err;
     }
   }, [goals]);
@@ -705,9 +420,13 @@ export default function Dashboard() {
     if (!goal) return;
 
     try {
+      const token = user ? await user.getIdToken() : '';
       const res = await fetch('/api/cos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           action: 'generate-auto-plan',
           goal: goal.title,
@@ -729,7 +448,6 @@ export default function Dashboard() {
         throw new Error(json.error || 'Failed to generate plan');
       }
 
-      // Convert day offsets in sessions to absolute YYYY-MM-DD strings.
       const today = new Date();
       const formatSessionDate = (dayOffset: number) => {
         const d = new Date(today);
@@ -762,7 +480,6 @@ export default function Dashboard() {
 
       await updateDoc(doc(db, 'goals', goalId), { autoPlan: autoPlanData });
     } catch (err) {
-      console.error('Error generating auto plan:', err);
       throw err;
     }
   }, [goals]);
@@ -771,7 +488,6 @@ export default function Dashboard() {
     try {
       await updateDoc(doc(db, 'goals', goalId), { autoPlan: autoPlanData });
     } catch (err) {
-      console.error('Error saving auto plan:', err);
       throw err;
     }
   }, []);
@@ -780,7 +496,6 @@ export default function Dashboard() {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal || !goal.autoPlan) return;
 
-    // Detect missed work: completed === false and dayStr is in the past
     const todayStr = new Date().toISOString().split('T')[0];
     const missedSessions = goal.autoPlan.sessions.filter((s) => {
       return !s.completed && s.dayStr < todayStr;
@@ -791,9 +506,13 @@ export default function Dashboard() {
     }
 
     try {
+      const token = user ? await user.getIdToken() : '';
       const res = await fetch('/api/cos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           action: 'replan-schedule',
           goal: goal.title,
@@ -810,7 +529,6 @@ export default function Dashboard() {
         throw new Error(json.error || 'Failed to replan schedule');
       }
 
-      // Convert day offsets to absolute YYYY-MM-DD strings relative to today
       const today = new Date();
       const formatSessionDate = (dayOffset: number) => {
         const d = new Date(today);
@@ -842,7 +560,6 @@ export default function Dashboard() {
 
       await updateDoc(doc(db, 'goals', goalId), { recoveryProposal: proposal });
     } catch (err) {
-      console.error('Error running replanner agent:', err);
       throw err;
     }
   }, [goals]);
@@ -851,7 +568,6 @@ export default function Dashboard() {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal || !goal.autoPlan) return;
 
-    // Recalculate weekly summarized hours for the updated sessions
     const start = goal.createdAt?.toDate?.() ?? new Date();
     const map = new Map<number, number>();
     proposal.updatedSessions.forEach((s) => {
@@ -876,10 +592,9 @@ export default function Dashboard() {
       await updateDoc(doc(db, 'goals', goalId), {
         autoPlan: updatedAutoPlan,
         deadline: proposal.suggestedDeadline,
-        recoveryProposal: null // clear the proposal
+        recoveryProposal: null
       });
     } catch (err) {
-      console.error('Error applying recovery proposal:', err);
       throw err;
     }
   }, [goals]);
@@ -887,10 +602,9 @@ export default function Dashboard() {
   const rejectRecoveryProposal = useCallback(async (goalId: string) => {
     try {
       await updateDoc(doc(db, 'goals', goalId), {
-        recoveryProposal: null // clear the proposal
+        recoveryProposal: null
       });
     } catch (err) {
-      console.error('Error rejecting recovery proposal:', err);
       throw err;
     }
   }, []);
@@ -900,56 +614,149 @@ export default function Dashboard() {
     router.push('/');
   };
 
-  const priorityDot: Record<string, string> = {
-    high: '#F59E0B',
-    medium: '#6366F1',
-    low: '#22C55E',
-  };
+  const handleMoveTasksToTomorrow = useCallback(async (goalId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal || !goal.autoPlan) return 0;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+    let count = 0;
+    const updatedSessions = goal.autoPlan.sessions.map((s) => {
+      if (!s.completed && s.dayStr <= todayStr) {
+        count++;
+        return { ...s, dayStr: tomorrowStr };
+      }
+      return s;
+    });
+
+    if (count > 0) {
+      const updatedPlan = {
+        ...goal.autoPlan,
+        sessions: updatedSessions,
+      };
+      await updateDoc(doc(db, 'goals', goalId), { autoPlan: updatedPlan });
+    }
+    return count;
+  }, [goals]);
+
+  const handleToggleMilestoneVoice = useCallback(async (goalId: string, milestoneId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+    await toggleMilestone(goalId, goal.milestones, milestoneId);
+  }, [goals, toggleMilestone]);
+
+  const handleToggleSubtaskVoice = useCallback(async (goalId: string, milestoneId: string, subtaskId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+    await toggleSubtask(goalId, goal.milestones, milestoneId, subtaskId);
+  }, [goals, toggleSubtask]);
+
+  const handleCreateGoalDirectly = useCallback(async (goalData: GoalData) => {
+    if (!user) return null;
+    try {
+      const rawMilestones = (goalData.milestones || []).map((m, i: number) => ({
+        ...m,
+        id: `m_${Date.now()}_${i}`,
+        completed: false,
+        completedAt: null,
+        difficulty: m.difficulty || 'medium',
+        subtasks: (m.subtasks || []).map((st, sti: number) => ({
+          id: `s_${Date.now()}_${i}_${sti}`,
+          title: st.title,
+          completed: false,
+          completedAt: null,
+        })),
+      }));
+
+      const rawWeeklyObjectives = (goalData.weeklyObjectives || []).map((wo, i: number) => ({
+        id: `w_${Date.now()}_${i}`,
+        weekNumber: Number(wo.weekNumber) || 1,
+        objective: wo.objective,
+        completed: false,
+        completedAt: null,
+      }));
+
+      const docRef = await addDoc(collection(db, 'goals'), {
+        userId: user.uid,
+        title: goalData.goalTitle.trim(),
+        description: goalData.goalDescription?.trim() || '',
+        deadline: goalData.deadline,
+        milestones: rawMilestones,
+        weeklyObjectives: rawWeeklyObjectives,
+        difficultyLevel: goalData.difficultyLevel || 'medium',
+        priorityLevel: goalData.priorityLevel || 'medium',
+        overview: goalData.overview || '',
+        urgencyLevel: goalData.urgencyLevel || '',
+        createdAt: serverTimestamp(),
+      });
+
+      return docRef.id;
+    } catch (err) {
+      throw err;
+    }
+  }, [user]);
 
   return (
-    <div className="flex h-screen bg-luxury-grid overflow-hidden">
+    <div className="flex h-screen bg-luxury-grid overflow-hidden relative">
 
-      {/* ── SIDEBAR ────────────────────────────────────── */}
+      {/* Backdrop overlay for mobile */}
       <AnimatePresence>
-        {(sidebarOpen || true) && (
-          <motion.aside
-            initial={false}
-            className="hidden lg:flex flex-col w-72 flex-shrink-0 border-r border-slate-200/60"
-            style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(20px)' }}
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 lg:relative lg:z-0 lg:flex flex-col w-72 shrink-0 border-r border-slate-200/60 bg-white/95 lg:bg-white/72 transition-transform duration-300 lg:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+        style={{ backdropFilter: 'blur(20px)' }}
+      >
+        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100/80">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+            >
+              <Zap size={15} className="text-white" />
+            </div>
+            <span className="font-bold text-slate-800 tracking-tight">DeadlineOS</span>
+          </div>
+          <Button
+            onClick={() => setSidebarOpen(false)}
+            variant="ghost"
+            size="icon"
+            className="lg:hidden text-slate-400 hover:text-slate-650 transition-colors"
           >
-            {/* Brand */}
-            <div className="h-16 flex items-center px-5 border-b border-slate-100/80">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
-                >
-                  <Zap size={15} className="text-white" />
-                </div>
-                <span className="font-bold text-slate-800 tracking-tight">DeadlineOS</span>
-              </div>
-            </div>
+            <X size={18} />
+          </Button>
+        </div>
 
-            {/* User */}
-            <div className="px-4 py-4 border-b border-slate-100/80">
-              <div className="flex items-center gap-3 px-2 py-2 rounded-xl"
-                style={{ background: 'rgba(99,102,241,0.05)' }}>
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
-                >
-                  {(user?.displayName?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">
-                    {user?.displayName ?? 'Chief of Staff'}
-                  </p>
-                  <p className="text-xs text-slate-400 truncate">{user?.email}</p>
-                </div>
-              </div>
+        <div className="px-4 py-4 border-b border-slate-100/80">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl"
+            style={{ background: 'rgba(99,102,241,0.05)' }}>
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0"
+              style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
+            >
+              {(user?.displayName?.[0] ?? user?.email?.[0] ?? 'U').toUpperCase()}
             </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 truncate">
+                {user?.displayName ?? 'Chief of Staff'}
+              </p>
+              <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+            </div>
+          </div>
+        </div>
 
-            {/* Main Navigation */}
             <div className="px-3 py-3 border-b border-slate-100/80 space-y-1 shrink-0">
               {([
                 { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -958,7 +765,7 @@ export default function Dashboard() {
                 { id: 'calendar', label: 'Calendar Grid', icon: Calendar },
                 { id: 'planner', label: 'AI Auto Planner', icon: Sparkles },
                 { id: 'risk', label: 'Risk Analytics', icon: TrendingDown },
-                { id: 'ai', label: 'AI Chief of Staff', icon: Brain },
+                { id: 'ai', label: 'AI Chat Assistant', icon: Sparkles },
                 { id: 'settings', label: 'Settings', icon: Settings },
               ] as const).map((item) => {
                 const Icon = item.icon;
@@ -981,7 +788,6 @@ export default function Dashboard() {
               })}
             </div>
 
-            {/* Goals list */}
             <div className="flex-1 overflow-y-auto py-3 px-3 no-scrollbar">
               <div className="flex items-center justify-between px-2 mb-2">
                 <span className="label-luxury">My Goals</span>
@@ -1015,7 +821,7 @@ export default function Dashboard() {
               ) : (
                 <div className="flex flex-col gap-1">
                   {goals.map((goal) => {
-                    const dl = daysLeft(goal.deadline);
+                    const dl = daysLeft(goal.deadline, now);
                     const completed = goal.milestones.filter((m) => m.completed).length;
                     const total = goal.milestones.length;
                     const color = urgencyColor(goal.urgencyLevel, dl);
@@ -1045,7 +851,7 @@ export default function Dashboard() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-start gap-2 min-w-0">
                             <div
-                              className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                              className="w-2 h-2 rounded-full mt-1.5 shrink-0"
                               style={{ background: color }}
                             />
                             <p className={`text-sm font-semibold truncate ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
@@ -1055,7 +861,7 @@ export default function Dashboard() {
                           <button
                             id={`goal-delete-${goal.id}`}
                             onClick={(e) => { e.stopPropagation(); deleteGoal(goal.id); }}
-                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-400 transition-all flex-shrink-0"
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-400 transition-all shrink-0"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1067,7 +873,7 @@ export default function Dashboard() {
                               style={{ width: `${total === 0 ? 0 : (completed / total) * 100}%`, background: color }}
                             />
                           </div>
-                          <span className="text-xs text-slate-400 flex-shrink-0">{dl}d left</span>
+                          <span className="text-xs text-slate-400 shrink-0">{dl}d left</span>
                         </div>
                       </div>
                     );
@@ -1076,7 +882,6 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Logout */}
             <div className="p-4 border-t border-slate-100/80">
               <Button
                 id="sidebar-logout"
@@ -1087,26 +892,30 @@ export default function Dashboard() {
                 <LogOut size={15} /> Sign Out
               </Button>
             </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
+          </aside>
 
-      {/* ── MAIN CONTENT ────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Top bar */}
         <header
-          className="h-16 flex items-center px-6 border-b border-slate-200/60 flex-shrink-0"
+          className="h-16 flex items-center px-6 border-b border-slate-200/60 shrink-0"
           style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)' }}
         >
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
+              <Button
+                id="sidebar-toggle"
+                onClick={() => setSidebarOpen(true)}
+                variant="ghost"
+                size="icon"
+                className="lg:hidden text-slate-500 hover:text-slate-700 -ml-2"
+              >
+                <Menu size={20} />
+              </Button>
               <h1 className="text-base font-extrabold text-slate-800 tracking-tight capitalize">
-                {currentView === 'ai' ? 'AI Chief of Staff' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Schedule' : currentView === 'risk' ? 'Risk Analytics' : currentView === 'planner' ? 'AI Auto Planner' : 'Settings'}
+                {currentView === 'ai' ? 'AI Chat Assistant' : currentView === 'dashboard' ? 'Workspace Overview' : currentView === 'goals' ? 'Goals Manager' : currentView === 'tasks' ? 'Tasks Workspace' : currentView === 'calendar' ? 'Calendar Grid' : currentView === 'risk' ? 'Risk Analytics' : currentView === 'planner' ? 'AI Auto Planner' : 'Settings'}
               </h1>
             </div>
             
-            {/* Top command bar */}
             <div className="hidden md:flex items-center w-80 relative">
               <Search size={14} className="absolute left-3.5 text-slate-400 pointer-events-none" />
               <input
@@ -1129,7 +938,6 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* Content Views Switch */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {currentView === 'dashboard' && (
             <MainDashboardView
@@ -1189,13 +997,13 @@ export default function Dashboard() {
               onNavigate={setCurrentView}
             />
           )}
+
           {currentView === 'settings' && (
             <SettingsView />
           )}
         </div>
       </div>
 
-      {/* New Goal Modal */}
       <AnimatePresence>
         {showNewGoal && (
           <NewGoalModal
@@ -1204,6 +1012,19 @@ export default function Dashboard() {
           />
         )}
       </AnimatePresence>
+
+      <FloatingVoiceAssistant
+        goals={goals}
+        selectedGoalId={selectedGoalId}
+        setSelectedGoalId={setSelectedGoalId}
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        onMoveTasksToTomorrow={handleMoveTasksToTomorrow}
+        onCreateGoal={handleCreateGoalDirectly}
+        onDeleteGoal={deleteGoal}
+        onToggleMilestone={handleToggleMilestoneVoice}
+        onToggleSubtask={handleToggleSubtaskVoice}
+      />
     </div>
   );
 }

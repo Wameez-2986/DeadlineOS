@@ -4,64 +4,9 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles, RefreshCw, Calendar, Clock, AlertTriangle, CheckCircle2,
-  ChevronLeft, ChevronRight, ChevronDown,
-  TrendingUp, CalendarDays, ListTodo, ShieldAlert
+  ChevronLeft, ChevronRight, ChevronDown, CalendarDays, ListTodo, ShieldAlert, TrendingUp
 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface WorkSession {
-  id: string;
-  title: string;
-  durationHours: number;
-  dayStr: string; // YYYY-MM-DD
-  timeSlot: 'morning' | 'afternoon' | 'evening';
-  completed: boolean;
-  milestoneId?: string;
-}
-
-interface WeeklyPlanSummary {
-  weekNumber: number;
-  focusTitle: string;
-  allocatedHours: number;
-}
-
-interface AutoPlan {
-  sessions: WorkSession[];
-  weeklySummaries: WeeklyPlanSummary[];
-  availableHoursPerDay: number;
-  generatedAt: string;
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  completed: boolean;
-  subtasks?: Array<{ id: string; title: string; completed: boolean }>;
-}
-
-interface RecoveryProposal {
-  beforeSessions: WorkSession[];
-  updatedSessions: WorkSession[];
-  explanation: string;
-  recoveryPlan: string[];
-  suggestedDeadline: string; // YYYY-MM-DD
-  originalDeadline: string; // YYYY-MM-DD
-  generatedAt: string;
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  autoPlan?: AutoPlan;
-  recoveryProposal?: RecoveryProposal;
-}
+import { Goal, AutoPlan, RecoveryProposal, WeeklyPlanSummary, WorkSession } from '@/lib/types';
 
 interface AutoPlannerViewProps {
   goals: Goal[];
@@ -90,16 +35,12 @@ export default function AutoPlannerView({
   const [availableHours, setAvailableHours] = useState<number>(4);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Calendar month selection state
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
-  // Find currently selected goal context
   const selectedGoal = useMemo(() => {
     return goals.find((g) => g.id === selectedGoalId) || goals[0] || null;
   }, [goals, selectedGoalId]);
 
-  // Set default hours if plan exists (synchronize during render to prevent cascading effect renders)
   const [prevGoalId, setPrevGoalId] = useState<string | null>(null);
   const [prevHoursPerDay, setPrevHoursPerDay] = useState<number | null>(null);
 
@@ -147,15 +88,29 @@ export default function AutoPlannerView({
     setError('');
     try {
       await generateAutoPlan(selectedGoal.id, availableHours);
-    } catch (err) {
-      console.error(err);
+    } catch {
       setError('AI scheduling failed. Please verify API configuration and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ── MUTATIONS (Drag & Drop, Completing Tasks) ──
+  const recalculateWeeklyHours = (sessions: WorkSession[], goal: Goal): WeeklyPlanSummary[] => {
+    const start = goal.createdAt?.toDate?.() ?? new Date();
+    const map = new Map<number, number>();
+    
+    sessions.forEach((s) => {
+      const diffTime = new Date(s.dayStr).getTime() - new Date(start).getTime();
+      const diffDays = Math.max(0, Math.floor(diffTime / 86400000));
+      const weekIndex = Math.floor(diffDays / 7) + 1;
+      map.set(weekIndex, (map.get(weekIndex) || 0) + s.durationHours);
+    });
+
+    return (goal.autoPlan?.weeklySummaries ?? []).map((w) => ({
+      ...w,
+      allocatedHours: map.get(w.weekNumber) || 0
+    }));
+  };
 
   const handleMoveSession = async (sessionId: string, newDayStr: string, newTimeSlot: 'morning' | 'afternoon' | 'evening') => {
     if (!selectedGoal || !selectedGoal.autoPlan) return;
@@ -167,7 +122,6 @@ export default function AutoPlannerView({
       return s;
     });
 
-    // Recalculate weekly hours based on moves
     const updatedWeeklySummaries = recalculateWeeklyHours(sessions, selectedGoal);
 
     const updatedPlan: AutoPlan = {
@@ -178,8 +132,8 @@ export default function AutoPlannerView({
 
     try {
       await saveAutoPlan(selectedGoal.id, updatedPlan);
-    } catch (err) {
-      console.error('Drag and drop update failed:', err);
+    } catch {
+      // Ignored
     }
   };
 
@@ -200,30 +154,10 @@ export default function AutoPlannerView({
 
     try {
       await saveAutoPlan(selectedGoal.id, updatedPlan);
-    } catch (err) {
-      console.error('Task complete toggle failed:', err);
+    } catch {
+      // Ignored
     }
   };
-
-  // Recalculate weekly summarized hours when work sessions shift days
-  const recalculateWeeklyHours = (sessions: WorkSession[], goal: Goal): WeeklyPlanSummary[] => {
-    const start = goal.createdAt?.toDate?.() ?? new Date();
-    const map = new Map<number, number>();
-    
-    sessions.forEach((s) => {
-      const diffTime = new Date(s.dayStr).getTime() - new Date(start).getTime();
-      const diffDays = Math.max(0, Math.floor(diffTime / 86400000));
-      const weekIndex = Math.floor(diffDays / 7) + 1;
-      map.set(weekIndex, (map.get(weekIndex) || 0) + s.durationHours);
-    });
-
-    return (goal.autoPlan?.weeklySummaries ?? []).map((w) => ({
-      ...w,
-      allocatedHours: map.get(w.weekNumber) || 0
-    }));
-  };
-
-  // ── STATISTICS & WORKLOAD CALCULATIONS ──
 
   const stats = useMemo(() => {
     if (!selectedGoal || !selectedGoal.autoPlan) return { totalHours: 0, overloadDays: 0, balanceScore: 'Optimal' };
@@ -250,7 +184,6 @@ export default function AutoPlannerView({
     return { totalHours, overloadDays, balanceScore };
   }, [selectedGoal]);
 
-  // Generate scrollable lanes for the day planner (up to 30 days)
   const datesList = useMemo(() => {
     if (!selectedGoal) return [];
     const today = new Date();
@@ -263,7 +196,6 @@ export default function AutoPlannerView({
     const curr = new Date(today);
     
     let count = 0;
-    // Show dates starting from today until deadline, capped at 30 days for view layout sanity
     while (curr <= deadline && count < 30) {
       list.push(new Date(curr));
       curr.setDate(curr.getDate() + 1);
@@ -272,7 +204,6 @@ export default function AutoPlannerView({
     return list;
   }, [selectedGoal]);
 
-  // Month grid calculator for the month view
   const calendarGrid = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -283,15 +214,12 @@ export default function AutoPlannerView({
 
     const grid: Date[] = [];
 
-    // Previous month padding
     for (let i = firstDayIndex - 1; i >= 0; i--) {
       grid.push(new Date(year, month - 1, lastDayOfPrevMonth - i));
     }
-    // Current month days
     for (let i = 1; i <= lastDayOfMonth; i++) {
       grid.push(new Date(year, month, i));
     }
-    // Next month padding to align 6-row calendar
     const remainingDays = 42 - grid.length;
     for (let i = 1; i <= remainingDays; i++) {
       grid.push(new Date(year, month + 1, i));
@@ -301,29 +229,25 @@ export default function AutoPlannerView({
 
   const monthName = currentDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
-  // Get daily session helper
   const getSessionsForDate = (date: Date) => {
     if (!selectedGoal?.autoPlan) return [];
     const dStr = date.toISOString().split('T')[0];
     return selectedGoal.autoPlan.sessions.filter((s) => s.dayStr === dStr);
   };
 
-  // Get total daily hours
   const getDailyHours = (sessions: WorkSession[]) => {
     return sessions.reduce((sum, s) => sum + s.durationHours, 0);
   };
 
   return (
     <div className="flex-1 flex overflow-hidden h-full">
-      {/* ── LEFT CELL: PLANNER SETTINGS & CAPACITIES ── */}
-      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col flex-shrink-0">
+      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col shrink-0">
         <div className="p-4 border-b border-slate-100/80">
           <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Plan Settings</h2>
           <p className="text-xs text-slate-400">Configure daily allocations</p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar">
-          {/* Goal selection dropdown */}
           <div className="space-y-1.5">
             <label className="label-luxury block">Active Goal Target</label>
             <div className="relative">
@@ -342,7 +266,6 @@ export default function AutoPlannerView({
             </div>
           </div>
 
-          {/* Daily hours slider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="label-luxury">Available daily capacity</label>
@@ -365,7 +288,6 @@ export default function AutoPlannerView({
             </div>
           </div>
 
-          {/* Action Trigger button */}
           <button
             onClick={handleGenerate}
             disabled={loading || !selectedGoal}
@@ -391,12 +313,10 @@ export default function AutoPlannerView({
             </div>
           )}
 
-          {/* ── METRICS WORKSPACE WIDGETS ── */}
           {selectedGoal?.autoPlan && (
             <div className="pt-5 border-t border-slate-200/50 space-y-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Capacity Diagnostics</h3>
               
-              {/* Total Hours Badge */}
               <div className="glass-panel p-3.5 flex justify-between items-center bg-white/70">
                 <div className="flex items-center gap-2">
                   <Clock size={16} className="text-slate-400" />
@@ -405,7 +325,6 @@ export default function AutoPlannerView({
                 <span className="text-sm font-black text-slate-800">{stats.totalHours} hrs</span>
               </div>
 
-              {/* Safety Rating Gauge */}
               <div className="glass-panel p-4 space-y-2 bg-white/70">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Smart Balancing Health</span>
                 
@@ -439,7 +358,6 @@ export default function AutoPlannerView({
         </div>
       </div>
 
-      {/* ── RIGHT CELL: VISUAL PLANNERS ── */}
       <div className="flex-1 bg-luxury-grid overflow-hidden flex flex-col justify-between">
         {!selectedGoal ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
@@ -483,8 +401,7 @@ export default function AutoPlannerView({
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Header Switch Tabs */}
-            <div className="px-6 pt-4 pb-0 border-b border-slate-200/60 bg-white/72 flex items-center justify-between flex-shrink-0">
+            <div className="px-6 pt-4 pb-0 border-b border-slate-200/60 bg-white/72 flex items-center justify-between shrink-0">
               <div className="flex gap-4">
                 {([
                   { id: 'day', label: 'Day Planner', icon: ListTodo },
@@ -522,10 +439,8 @@ export default function AutoPlannerView({
               </div>
             </div>
 
-            {/* View Switch Content Container */}
             <div className="flex-1 overflow-hidden flex flex-col">
               <AnimatePresence mode="wait">
-                {/* ── DAY PLANNER VIEW (DRAG & DROP) ── */}
                 {activeTab === 'day' && (
                   <motion.div
                     key="day-planner"
@@ -545,10 +460,9 @@ export default function AutoPlannerView({
                       return (
                         <div
                           key={dStr}
-                          className="w-72 bg-white/60 border border-slate-200/60 rounded-2xl flex flex-col flex-shrink-0 h-full overflow-hidden shadow-sm backdrop-blur-sm"
+                          className="w-72 bg-white/60 border border-slate-200/60 rounded-2xl flex flex-col shrink-0 h-full overflow-hidden shadow-sm backdrop-blur-sm"
                         >
-                          {/* Day column header */}
-                          <div className={`p-4 border-b flex items-center justify-between flex-shrink-0 ${isToday ? 'bg-indigo-50/20' : 'bg-slate-50/40'}`}>
+                          <div className={`p-4 border-b flex items-center justify-between shrink-0 ${isToday ? 'bg-indigo-50/20' : 'bg-slate-50/40'}`}>
                             <div>
                               <h4 className={`text-xs font-black ${isToday ? 'text-indigo-600' : 'text-slate-800'}`}>
                                 {formattedHeader}
@@ -570,7 +484,6 @@ export default function AutoPlannerView({
                             </div>
                           </div>
 
-                          {/* Time Slots Area (Morning, Afternoon, Evening) */}
                           <div className="flex-1 overflow-y-auto p-3 space-y-4 no-scrollbar">
                             {(['morning', 'afternoon', 'evening'] as const).map((slot) => {
                               const slotSessions = daySessions.filter((s) => s.timeSlot === slot);
@@ -584,7 +497,7 @@ export default function AutoPlannerView({
                                     const sessionId = e.dataTransfer.getData('text/plain');
                                     handleMoveSession(sessionId, dStr, slot);
                                   }}
-                                  className="space-y-1.5 min-h-[90px] border border-dashed border-slate-200/50 rounded-xl p-2.5 bg-slate-50/20 hover:bg-slate-50/50 transition-colors relative"
+                                  className="space-y-1.5 min-h-22.5 border border-dashed border-slate-200/50 rounded-xl p-2.5 bg-slate-50/20 hover:bg-slate-50/50 transition-colors relative"
                                 >
                                   <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1">
                                     {slot}
@@ -612,7 +525,7 @@ export default function AutoPlannerView({
                                               type="checkbox"
                                               checked={s.completed}
                                               onChange={() => handleToggleSessionComplete(s.id)}
-                                              className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 accent-indigo-600 focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                                              className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 accent-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
                                             />
                                             <p className={`text-xs font-semibold leading-tight text-slate-700 truncate ${s.completed ? 'line-through text-slate-400' : ''}`}>
                                               {s.title}
@@ -638,7 +551,6 @@ export default function AutoPlannerView({
                   </motion.div>
                 )}
 
-                {/* ── MONTH CALENDAR VIEW ── */}
                 {activeTab === 'calendar' && (
                   <motion.div
                     key="calendar-view"
@@ -647,8 +559,7 @@ export default function AutoPlannerView({
                     exit={{ opacity: 0 }}
                     className="flex-1 p-6 flex flex-col overflow-y-auto no-scrollbar"
                   >
-                    {/* Header Month controller */}
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 flex-shrink-0">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 shrink-0">
                       <div className="flex items-center gap-2">
                         <CalendarDays size={18} className="text-indigo-600" />
                         <h1 className="text-lg font-bold text-slate-800 tracking-tight">{monthName}</h1>
@@ -680,7 +591,7 @@ export default function AutoPlannerView({
                       <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
                     </div>
 
-                    <div className="grid grid-cols-7 gap-2 flex-1 min-h-[360px]">
+                    <div className="grid grid-cols-7 gap-2 flex-1 min-h-90">
                       {calendarGrid.map((day, idx) => {
                         const isToday = new Date().toDateString() === day.toDateString();
                         const isCurrentMonth = day.getMonth() === currentDate.getMonth();
@@ -690,7 +601,7 @@ export default function AutoPlannerView({
                         return (
                           <div
                             key={idx}
-                            className={`min-h-[75px] p-2 rounded-xl border flex flex-col justify-between ${
+                            className={`min-h-18.75 p-2 rounded-xl border flex flex-col justify-between ${
                               isToday ? 'border-indigo-600 bg-indigo-50/5 ring-1 ring-indigo-50' : 'border-slate-100'
                             } ${isCurrentMonth ? 'bg-white' : 'bg-slate-50/40 text-slate-300'}`}
                           >
@@ -709,7 +620,7 @@ export default function AutoPlannerView({
                               )}
                             </div>
 
-                            <div className="space-y-0.5 overflow-hidden h-[34px] mt-1.5">
+                            <div className="space-y-0.5 overflow-hidden h-8.5 mt-1.5">
                               {daySessions.slice(0, 2).map((s) => (
                                 <div
                                   key={s.id}
@@ -733,7 +644,6 @@ export default function AutoPlannerView({
                   </motion.div>
                 )}
 
-                {/* ── TIMELINE ROADMAP VIEW ── */}
                 {activeTab === 'timeline' && (
                   <motion.div
                     key="timeline-view"
@@ -742,7 +652,7 @@ export default function AutoPlannerView({
                     exit={{ opacity: 0 }}
                     className="flex-1 p-6 overflow-y-auto no-scrollbar space-y-5"
                   >
-                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3 flex-shrink-0">
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-3 shrink-0">
                       <TrendingUp size={18} className="text-indigo-600" />
                       <h1 className="text-lg font-bold text-slate-800 tracking-tight">Weekly Load Distribution</h1>
                     </div>
@@ -789,7 +699,6 @@ export default function AutoPlannerView({
                   </motion.div>
                 )}
 
-                {/* ── RECOVERY AGENT VIEW ── */}
                 {activeTab === 'recovery' && (
                   <motion.div
                     key="recovery-view"
@@ -800,7 +709,6 @@ export default function AutoPlannerView({
                   >
                     <div className="flex-1 flex flex-col justify-between h-full">
                       {!selectedGoal.recoveryProposal ? (
-                        // ── NO PROPOSAL STATE ──
                         <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto py-12 text-center space-y-6 w-full">
                           {missedSessions.length === 0 ? (
                             <div className="glass-panel p-8 flex flex-col items-center justify-center bg-white/80 w-full">
@@ -821,7 +729,6 @@ export default function AutoPlannerView({
                                 </div>
                               </div>
 
-                              {/* Before Plan list: Missed sessions */}
                               <div className="glass-panel p-5 bg-white">
                                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Before Plan (Past Missed Work)</h3>
                                 <div className="space-y-2 max-h-60 overflow-y-auto no-scrollbar">
@@ -860,12 +767,10 @@ export default function AutoPlannerView({
                           )}
                         </div>
                       ) : (
-                        // ── ACTIVE PROPOSAL STATE (3-COLUMN COMPARISON) ──
                         <div className="flex-1 flex flex-col justify-between space-y-6 h-full">
                           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
                             
-                            {/* Column 1: Before Plan */}
-                            <div className="glass-panel p-5 bg-white flex flex-col h-[500px]">
+                            <div className="glass-panel p-5 bg-white flex flex-col h-125">
                               <div className="border-b border-slate-100 pb-3 mb-4 shrink-0">
                                 <h3 className="text-xs font-black text-rose-500 uppercase tracking-widest">1. Before Plan</h3>
                                 <p className="text-[10px] text-slate-400 mt-0.5">Work missed or delayed</p>
@@ -893,15 +798,13 @@ export default function AutoPlannerView({
                               </div>
                             </div>
 
-                            {/* Column 2: Updated Plan */}
-                            <div className="glass-panel p-5 bg-white flex flex-col h-[500px]">
+                            <div className="glass-panel p-5 bg-white flex flex-col h-125">
                               <div className="border-b border-slate-100 pb-3 mb-4 shrink-0">
                                 <h3 className="text-xs font-black text-indigo-600 uppercase tracking-widest">2. Updated Plan</h3>
                                 <p className="text-[10px] text-slate-400 mt-0.5">Recalculated schedule and deadline</p>
                               </div>
 
                               <div className="flex-1 overflow-y-auto space-y-2 pr-1 no-scrollbar text-left">
-                                {/* Suggested Deadline */}
                                 {(() => {
                                   const isExtended = selectedGoal.recoveryProposal.suggestedDeadline !== selectedGoal.recoveryProposal.originalDeadline;
                                   return (
@@ -939,15 +842,13 @@ export default function AutoPlannerView({
                               </div>
                             </div>
 
-                            {/* Column 3: Recovery Strategy */}
-                            <div className="glass-panel p-5 bg-white flex flex-col h-[500px]">
+                            <div className="glass-panel p-5 bg-white flex flex-col h-125">
                               <div className="border-b border-slate-100 pb-3 mb-4 shrink-0">
                                 <h3 className="text-xs font-black text-emerald-600 uppercase tracking-widest">3. Recovery Strategy</h3>
                                 <p className="text-[10px] text-slate-400 mt-0.5">Gemini analysis & action items</p>
                               </div>
 
                               <div className="flex-1 overflow-y-auto space-y-4 pr-1 no-scrollbar text-xs text-left">
-                                {/* Why changes were made */}
                                 <div className="space-y-1.5">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Why changes were made</span>
                                   <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/60 text-slate-600 leading-relaxed font-semibold">
@@ -955,7 +856,6 @@ export default function AutoPlannerView({
                                   </div>
                                 </div>
 
-                                {/* Recovery Plan steps */}
                                 <div className="space-y-2 pt-1">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">AI Recovery Action items</span>
                                   <div className="space-y-2">
@@ -974,8 +874,7 @@ export default function AutoPlannerView({
 
                           </div>
 
-                          {/* Floating Accept/Reject Actions Bar */}
-                          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/50 flex-shrink-0">
+                          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200/50 shrink-0">
                             <button
                               onClick={() => rejectRecoveryProposal(selectedGoal.id)}
                               className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-xs font-bold rounded-xl text-slate-600 cursor-pointer"

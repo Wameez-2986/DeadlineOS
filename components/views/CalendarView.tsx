@@ -1,65 +1,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import {
-  ChevronLeft, ChevronRight, Calendar as CalendarIcon,
-  CheckCircle2, Clock, Brain, Target
-} from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  status?: 'todo' | 'in_progress' | 'done';
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string; // ISO date string
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  userId: string;
-}
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckCircle2, Clock, Target } from 'lucide-react';
+import { Goal } from '@/lib/types';
 
 interface CalendarViewProps {
   goals: Goal[];
@@ -72,7 +15,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
 
-  // Helper: Get milestone exact date
   const getMilestoneDate = (goal: Goal, daysFromStart: number): Date => {
     const start = goal.createdAt?.toDate?.() ?? new Date();
     const date = new Date(start);
@@ -80,11 +22,10 @@ export default function CalendarView({ goals }: CalendarViewProps) {
     return date;
   };
 
-  // Compile all calendar events (deadlines & milestones)
   const events = useMemo(() => {
     const list: Array<{
       type: 'goal' | 'milestone';
-      dateStr: string; // YYYY-MM-DD
+      dateStr: string;
       title: string;
       description?: string;
       priority?: 'high' | 'medium' | 'low';
@@ -93,7 +34,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
     }> = [];
 
     goals.forEach((goal) => {
-      // Goal deadline event
       const goalDeadlineStr = new Date(goal.deadline).toISOString().split('T')[0];
       list.push({
         type: 'goal',
@@ -104,7 +44,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
         goalTitle: goal.title
       });
 
-      // Milestones events
       goal.milestones.forEach((m) => {
         const milestoneDate = getMilestoneDate(goal, m.daysFromStart);
         const milestoneDateStr = milestoneDate.toISOString().split('T')[0];
@@ -123,7 +62,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
     return list;
   }, [goals]);
 
-  // Generate calendar grid dates
   const calendarGrid = useMemo(() => {
     const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
     const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -131,17 +69,14 @@ export default function CalendarView({ goals }: CalendarViewProps) {
 
     const grid: Date[] = [];
 
-    // Previous month padding
     for (let i = firstDayIndex - 1; i >= 0; i--) {
       grid.push(new Date(currentYear, currentMonth - 1, lastDayOfPrevMonth - i));
     }
 
-    // Current month days
     for (let i = 1; i <= lastDayOfMonth; i++) {
       grid.push(new Date(currentYear, currentMonth, i));
     }
 
-    // Next month padding to reach multiple of 7
     const remainingDays = 42 - grid.length;
     for (let i = 1; i <= remainingDays; i++) {
       grid.push(new Date(currentYear, currentMonth + 1, i));
@@ -150,7 +85,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
     return grid;
   }, [currentYear, currentMonth]);
 
-  // Month navigation
   const prevMonth = () => {
     setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
   };
@@ -159,25 +93,20 @@ export default function CalendarView({ goals }: CalendarViewProps) {
     setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
   };
 
-  // Month Name Helper
   const monthName = currentDate.toLocaleDateString('default', { month: 'long' });
 
-  // Get events on a specific date
   const getEventsForDate = (date: Date) => {
     const dStr = date.toISOString().split('T')[0];
     return events.filter(e => e.dateStr === dStr);
   };
 
-  // Selected date events
   const selectedDateEvents = selectedDate ? getEventsForDate(selectedDate) : [];
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
       
-      {/* ── LEFT CELL: CALENDAR GRID ──────────────────────── */}
       <div className="flex-1 p-6 flex flex-col overflow-y-auto no-scrollbar space-y-4">
         
-        {/* Month Selector header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <CalendarIcon size={18} className="text-indigo-600" />
@@ -206,7 +135,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
           </div>
         </div>
 
-        {/* Days of week header */}
         <div className="grid grid-cols-7 gap-1 text-center font-bold text-slate-400 text-[10px] tracking-wider uppercase mb-1">
           <span>Sun</span>
           <span>Mon</span>
@@ -217,8 +145,7 @@ export default function CalendarView({ goals }: CalendarViewProps) {
           <span>Sat</span>
         </div>
 
-        {/* Grid Cells */}
-        <div className="grid grid-cols-7 gap-2 flex-1 min-h-[300px]">
+        <div className="grid grid-cols-7 gap-2 flex-1 min-h-75">
           {calendarGrid.map((day, idx) => {
             const isToday = new Date().toDateString() === day.toDateString();
             const isCurrentMonth = day.getMonth() === currentMonth;
@@ -229,7 +156,7 @@ export default function CalendarView({ goals }: CalendarViewProps) {
               <div
                 key={idx}
                 onClick={() => setSelectedDate(day)}
-                className={`min-h-[60px] p-1.5 rounded-xl border flex flex-col justify-between cursor-pointer hover:border-indigo-200 transition-all ${
+                className={`min-h-15 p-1.5 rounded-xl border flex flex-col justify-between cursor-pointer hover:border-indigo-200 transition-all ${
                   isSelected ? 'border-indigo-600 ring-2 ring-indigo-50 bg-indigo-50/5' : 
                   isToday ? 'border-slate-300 bg-slate-50' : 'border-slate-100'
                 } ${isCurrentMonth ? 'bg-white' : 'bg-slate-50/40 text-slate-300'}`}
@@ -246,12 +173,11 @@ export default function CalendarView({ goals }: CalendarViewProps) {
                   )}
                 </div>
 
-                {/* Micro Event Dot Toggles */}
-                <div className="flex flex-wrap gap-0.5 mt-1 overflow-hidden h-[16px] max-w-full">
+                <div className="flex flex-wrap gap-0.5 mt-1 overflow-hidden h- max-w-full">
                   {dayEvents.slice(0, 3).map((e, ei) => (
                     <span
                       key={ei}
-                      className="w-1 h-1 rounded-full flex-shrink-0"
+                      className="w-1 h-1 rounded-full shrink-0"
                       style={{
                         background: e.type === 'goal' ? '#E11D48' :
                           e.priority === 'high' ? '#F59E0B' :
@@ -266,10 +192,8 @@ export default function CalendarView({ goals }: CalendarViewProps) {
         </div>
       </div>
 
-      {/* ── RIGHT PANEL: SELECTED DATE EVENTS LIST ────────── */}
       <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-slate-200/60 bg-white/40 backdrop-blur-md p-6 flex flex-col overflow-y-auto no-scrollbar">
         
-        {/* Date view header */}
         <div className="border-b border-slate-100 pb-3 mb-4">
           <span className="label-luxury">Agenda</span>
           <h2 className="text-sm font-bold text-slate-800 tracking-tight mt-0.5">
@@ -277,7 +201,6 @@ export default function CalendarView({ goals }: CalendarViewProps) {
           </h2>
         </div>
 
-        {/* Selected date events list */}
         <div className="flex-1 space-y-3">
           {selectedDateEvents.length === 0 ? (
             <div className="text-center py-10">
@@ -292,11 +215,11 @@ export default function CalendarView({ goals }: CalendarViewProps) {
               >
                 <div className="flex items-center gap-1.5">
                   {e.type === 'goal' ? (
-                    <span className="p-1 rounded-md bg-rose-50 text-rose-500 flex-shrink-0">
+                    <span className="p-1 rounded-md bg-rose-50 text-rose-500 shrink-0">
                       <Target size={12} />
                     </span>
                   ) : (
-                    <span className="p-1 rounded-md bg-indigo-50 text-indigo-500 flex-shrink-0">
+                    <span className="p-1 rounded-md bg-indigo-50 text-indigo-500 shrink-0">
                       <CheckCircle2 size={12} />
                     </span>
                   )}

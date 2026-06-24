@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { verifyAuth } from '@/lib/auth-server';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -8,16 +9,13 @@ const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 
-interface MilestoneRaw {
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  suggestions: string[];
-}
-
 export async function POST(req: NextRequest) {
   try {
+    const user = await verifyAuth(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { action } = body;
 
@@ -34,10 +32,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  } catch {
+  } catch (error) {
+    console.error('API Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
 
 async function handleGenerateMilestones(body: {
   goal: string;
@@ -293,7 +293,7 @@ Return a JSON object with this exact structure:
   ],
   "sessions": [
     {
-      "id": "s_${Date.now()}_" + Math.random().toString(36).substring(2, 5),
+      "id": "s_" + Math.random().toString(36).substring(2, 5),
       "title": "Clear action-focused session title derived from subtask",
       "durationHours": <number: estimated hours, e.g. 1.5>,
       "dayOffset": <number: day index where this session takes place, between 0 and ${totalDays}>,
@@ -313,7 +313,6 @@ Rules:
   const text = result.response.text();
   const parsed = JSON.parse(text);
 
-  // Normalize IDs to avoid literal templates returned by LLM
   if (parsed && Array.isArray(parsed.sessions)) {
     parsed.sessions = parsed.sessions.map((s: Record<string, unknown>, idx: number) => {
       const sessionId = typeof s.id === 'string' ? s.id : '';
@@ -420,3 +419,5 @@ Rules:
 
   return NextResponse.json({ success: true, data: parsed });
 }
+
+

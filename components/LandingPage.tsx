@@ -4,12 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   Zap, ArrowRight, Target, Clock, Brain, CheckCircle2,
-  TrendingUp, Sparkles, ChevronRight, Star, Shield, Users,
-  Loader2, Calendar, BarChart3, MessageSquare, Play
+  Sparkles, Star, Loader2, BarChart3, MessageSquare, Play
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-/* ─── Types ─────────────────────────────────────────────── */
 interface DemoMilestone {
   title: string;
   description: string;
@@ -18,7 +16,6 @@ interface DemoMilestone {
   suggestions: string[];
 }
 
-/* ─── Floating orb component ─────────────────────────────── */
 function FloatingOrb({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <div
@@ -28,7 +25,6 @@ function FloatingOrb({ className, style }: { className?: string; style?: React.C
   );
 }
 
-/* ─── Feature card ───────────────────────────────────────── */
 function FeatureCard({
   icon: Icon,
   title,
@@ -67,7 +63,6 @@ function FeatureCard({
   );
 }
 
-/* ─── Step card ──────────────────────────────────────────── */
 function StepCard({ number, title, description, delay }: { number: string; title: string; description: string; delay: number }) {
   const ref = useRef(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
@@ -80,7 +75,7 @@ function StepCard({ number, title, description, delay }: { number: string; title
       transition={{ duration: 0.5, delay }}
       className="flex gap-5"
     >
-      <div className="flex-shrink-0">
+      <div className="shrink-0">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white"
           style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
@@ -96,18 +91,17 @@ function StepCard({ number, title, description, delay }: { number: string; title
   );
 }
 
-/* ─── Priority badge ─────────────────────────────────────── */
 const priorityConfig = {
   high: { label: 'High', className: 'badge badge-pending', dot: 'bg-amber-400' },
   medium: { label: 'Medium', className: 'badge badge-progress', dot: 'bg-indigo-400' },
   low: { label: 'Low', className: 'badge badge-done', dot: 'bg-green-400' },
 };
 
-/* ─── MAIN COMPONENT ─────────────────────────────────────── */
+const phrases = ['before deadlines slip.', 'with AI-backed clarity.', 'like a Chief of Staff.'];
+
 export default function LandingPage() {
   const router = useRouter();
 
-  // Demo state
   const [demoGoal, setDemoGoal] = useState('');
   const [demoDeadline, setDemoDeadline] = useState('');
   const [demoLoading, setDemoLoading] = useState(false);
@@ -116,8 +110,6 @@ export default function LandingPage() {
   const [demoUrgency, setDemoUrgency] = useState('');
   const [demoError, setDemoError] = useState('');
 
-  // Typewriter for hero
-  const phrases = ['before deadlines slip.', 'with AI-backed clarity.', 'like a Chief of Staff.'];
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [displayed, setDisplayed] = useState('');
   const [typing, setTyping] = useState(true);
@@ -135,50 +127,20 @@ export default function LandingPage() {
       if (displayed.length > 0) {
         timeout = setTimeout(() => setDisplayed(displayed.slice(0, -1)), 28);
       } else {
-        setPhraseIndex((i) => (i + 1) % phrases.length);
-        setTyping(true);
+        timeout = setTimeout(() => {
+          setPhraseIndex((i) => (i + 1) % phrases.length);
+          setTyping(true);
+        }, 0);
       }
     }
     return () => clearTimeout(timeout);
   }, [displayed, typing, phraseIndex]);
 
   const runDemo = async () => {
-    if (!demoGoal.trim() || !demoDeadline) {
-      setDemoError('Please enter a goal and select a deadline.');
-      return;
-    }
-    const dl = new Date(demoDeadline);
-    if (dl <= new Date()) {
-      setDemoError('Please choose a future deadline.');
-      return;
-    }
-    setDemoError('');
-    setDemoLoading(true);
-    setDemoMilestones([]);
-    setDemoOverview('');
-
-    try {
-      const res = await fetch('/api/cos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'generate-milestones', goal: demoGoal, deadline: demoDeadline }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setDemoMilestones(json.data.milestones ?? []);
-        setDemoOverview(json.data.overview ?? '');
-        setDemoUrgency(json.data.urgencyLevel ?? '');
-      } else {
-        setDemoError('AI is temporarily unavailable. Try again shortly.');
-      }
-    } catch {
-      setDemoError('Network error. Please check your connection.');
-    } finally {
-      setDemoLoading(false);
-    }
+    router.push('/auth');
+    return;
   };
 
-  // Min deadline = tomorrow
   const minDeadline = (() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -195,7 +157,6 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen bg-luxury-grid overflow-x-hidden">
 
-      {/* ── NAVBAR ───────────────────────────────────────── */}
       <motion.header
         initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -241,10 +202,9 @@ export default function LandingPage() {
         </div>
       </motion.header>
 
-      {/* ── HERO ─────────────────────────────────────────── */}
       <section className="relative flex flex-col items-center justify-center pt-24 pb-20 px-6 overflow-hidden">
         <FloatingOrb
-          className="w-[600px] h-[400px] -top-20 left-1/2 -translate-x-1/2"
+          className="w-150 h-100 -top-20 left-1/2 -translate-x-1/2"
           style={{ background: 'rgba(99, 102, 241, 0.08)' }}
         />
         <FloatingOrb
@@ -252,7 +212,6 @@ export default function LandingPage() {
           style={{ background: 'rgba(245, 158, 11, 0.06)' }}
         />
 
-        {/* Badge */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -267,7 +226,6 @@ export default function LandingPage() {
           <span className="text-xs font-semibold text-indigo-600 tracking-wide">Powered by Google Gemini</span>
         </motion.div>
 
-        {/* Headline */}
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -284,7 +242,6 @@ export default function LandingPage() {
           </span>
         </motion.h1>
 
-        {/* Subtitle */}
         <motion.p
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -295,7 +252,6 @@ export default function LandingPage() {
           bulletproof milestone plan and coaches you to the finish line.
         </motion.p>
 
-        {/* CTAs */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -314,7 +270,6 @@ export default function LandingPage() {
           </a>
         </motion.div>
 
-        {/* Social proof */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -342,7 +297,6 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      {/* ── FEATURES ─────────────────────────────────────── */}
       <section id="features" className="py-24 px-6 relative">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
@@ -392,7 +346,7 @@ export default function LandingPage() {
               delay={0.32}
             />
             <FeatureCard
-              icon={Shield}
+              icon={Target}
               title="Firebase-Backed Security"
               description="Your goals and data are protected by Google's enterprise-grade Firebase Auth and Firestore infrastructure."
               accent="linear-gradient(135deg, #EF4444, #DC2626)"
@@ -402,7 +356,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── HOW IT WORKS ─────────────────────────────────── */}
       <section id="how-it-works" className="py-24 px-6" style={{ background: 'rgba(238, 242, 255, 0.4)' }}>
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
@@ -440,7 +393,6 @@ export default function LandingPage() {
               />
             </div>
 
-            {/* Visual mockup */}
             <motion.div
               initial={{ opacity: 0, x: 30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -461,9 +413,8 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* Urgency ring mockup */}
                 <div className="flex items-center gap-4 py-3">
-                  <div className="relative w-16 h-16 flex-shrink-0">
+                  <div className="relative w-16 h-16 shrink-0">
                     <svg viewBox="0 0 64 64" className="w-16 h-16 -rotate-90">
                       <circle cx="32" cy="32" r="26" fill="none" stroke="#E2E8F0" strokeWidth="6" />
                       <circle
@@ -507,11 +458,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── INTERACTIVE DEMO ──────────────────────────────── */}
       <section id="demo" className="py-24 px-6">
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-12">
-            <p className="label-luxury mb-3">Try it now — no signup needed</p>
+            <p className="label-luxury mb-3">Try it now — sign in required</p>
             <h2 className="heading-xl text-slate-800">
               See AI <span className="text-gradient-indigo">plan your goal</span> live
             </h2>
@@ -521,7 +471,6 @@ export default function LandingPage() {
           </div>
 
           <div className="glass-panel p-8">
-            {/* Inputs */}
             <div className="grid sm:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="label-luxury block mb-2">Your Goal</label>
@@ -565,7 +514,6 @@ export default function LandingPage() {
               )}
             </button>
 
-            {/* Results */}
             <AnimatePresence>
               {(demoMilestones.length > 0 || demoOverview) && (
                 <motion.div
@@ -577,7 +525,6 @@ export default function LandingPage() {
                 >
                   <div className="divider mb-5" />
 
-                  {/* Urgency badge */}
                   {demoUrgency && (
                     <div className="flex items-center gap-2 mb-4">
                       <span className="label-luxury">Urgency Level:</span>
@@ -594,20 +541,18 @@ export default function LandingPage() {
                     </div>
                   )}
 
-                  {/* Overview */}
                   {demoOverview && (
                     <div
                       className="rounded-xl p-4 mb-5 text-sm text-slate-600 leading-relaxed"
                       style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99,102,241,0.12)' }}
                     >
                       <p className="flex items-start gap-2">
-                        <Brain size={14} className="text-indigo-500 mt-0.5 flex-shrink-0" />
+                        <Brain size={14} className="text-indigo-500 mt-0.5 shrink-0" />
                         {demoOverview}
                       </p>
                     </div>
                   )}
 
-                  {/* Milestones */}
                   <div className="space-y-3">
                     {demoMilestones.map((m, i) => {
                       const cfg = priorityConfig[m.priority] ?? priorityConfig.medium;
@@ -622,14 +567,14 @@ export default function LandingPage() {
                           <div className="flex items-start justify-between gap-3 mb-2">
                             <div className="flex items-center gap-2.5">
                               <div
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
                                 style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}
                               >
                                 {i + 1}
                               </div>
                               <h4 className="font-semibold text-slate-800 text-sm">{m.title}</h4>
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
                               <span className={cfg.className}>{cfg.label}</span>
                               <span className="text-xs text-slate-400">Day {m.daysFromStart}</span>
                             </div>
@@ -653,7 +598,6 @@ export default function LandingPage() {
                     })}
                   </div>
 
-                  {/* Upsell CTA */}
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -681,7 +625,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── FINAL CTA ─────────────────────────────────────── */}
       <section className="py-24 px-6">
         <div className="max-w-3xl mx-auto text-center">
           <motion.div
@@ -728,7 +671,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── FOOTER ───────────────────────────────────────── */}
       <footer className="py-8 px-6 border-t border-slate-200/60">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">

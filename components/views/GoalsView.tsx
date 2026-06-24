@@ -3,64 +3,10 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Target, Calendar, CheckCircle2, Circle, Clock, Trash2,
-  Sparkles, Search, SlidersHorizontal, ChevronRight, AlertTriangle,
-  Compass, ChevronDown, ChevronUp, Columns, CheckSquare, Award, ArrowRight, ArrowLeft, Brain
+  Target, Calendar, CheckCircle2, Trash2, Search, Compass, ChevronDown,
+  ChevronUp, Columns, ArrowRight, ArrowLeft, Brain
 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  status?: 'todo' | 'in_progress' | 'done';
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string; // ISO date string
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  userId: string;
-}
+import { Goal, Milestone, WeeklyObjective, Subtask } from '@/lib/types';
 
 interface GoalsViewProps {
   goals: Goal[];
@@ -90,14 +36,12 @@ export default function GoalsView({
   const [activeTab, setActiveTab] = useState<'timeline' | 'kanban' | 'roadmap'>('timeline');
   const [expandedMilestones, setExpandedMilestones] = useState<Record<string, boolean>>({});
 
-  // Days left helper
   const daysLeft = (dateStr: string) => {
     const deadline = new Date(dateStr);
     const today = new Date();
     return Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
   };
 
-  // Format date helper
   const formatDateStr = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
       month: 'short',
@@ -106,7 +50,6 @@ export default function GoalsView({
     });
   };
 
-  // Helper: Get milestone exact date
   const getMilestoneDate = (goal: Goal, daysFromStart: number): Date => {
     const start = goal.createdAt?.toDate?.() ?? new Date();
     const date = new Date(start);
@@ -114,7 +57,6 @@ export default function GoalsView({
     return date;
   };
 
-  // Format Date object helper
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
       month: 'short',
@@ -123,7 +65,6 @@ export default function GoalsView({
     });
   };
 
-  // Urgency colors
   const urgencyColor = (level?: string, dl?: number) => {
     const actualDl = dl ?? 999;
     if (actualDl < 3 || level === 'critical') return '#F43F5E';
@@ -132,21 +73,18 @@ export default function GoalsView({
     return '#22C55E';
   };
 
-  // Priority dot colors
   const priorityDot: Record<string, string> = {
     high: '#F43F5E',
     medium: '#F59E0B',
     low: '#22C55E',
   };
 
-  // Difficulty badge colors
   const difficultyColors = {
     easy: 'bg-green-50 text-green-600 border border-green-100',
     medium: 'bg-amber-50 text-amber-600 border border-amber-100',
     hard: 'bg-rose-50 text-rose-600 border border-rose-100',
   };
 
-  // Filter goals
   const filteredGoals = useMemo(() => {
     return goals.filter((g) => {
       const matchesSearch = g.title.toLowerCase().includes(search.toLowerCase()) || 
@@ -156,15 +94,12 @@ export default function GoalsView({
     });
   }, [goals, search, filterUrgency]);
 
-  // Selected goal details
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? filteredGoals[0] ?? null;
 
-  // Toggle milestone expansion in timeline view
   const toggleMilestoneExpand = (id: string) => {
     setExpandedMilestones((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Group subtasks by status for Kanban Board
   const subtasksByStatus = useMemo(() => {
     const todo: Array<{ milestoneId: string; subtask: Subtask }> = [];
     const inProgress: Array<{ milestoneId: string; subtask: Subtask }> = [];
@@ -188,7 +123,6 @@ export default function GoalsView({
     return { todo, inProgress, done };
   }, [selectedGoal]);
 
-  // Calculate detailed progress stats for roadmap
   const progressStats = useMemo(() => {
     if (!selectedGoal) return { percent: 0, completed: 0, total: 0 };
     
@@ -212,7 +146,6 @@ export default function GoalsView({
     return { percent, completed: completedItems, total: totalItems };
   }, [selectedGoal]);
 
-  // AI Strategic insight advisor recommendations
   const aiAdvisorInsight = useMemo(() => {
     if (!selectedGoal) return '';
     const pct = progressStats.percent;
@@ -231,11 +164,9 @@ export default function GoalsView({
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
       
-      {/* ── LEFT PANEL: SEARCH & LIST ─────────────────────── */}
       <div className="w-full md:w-80 border-r border-slate-200/60 flex flex-col bg-white/40 backdrop-blur-md">
         
-        {/* Search & Actions */}
-        <div className="p-4 border-b border-slate-100 space-y-3 flex-shrink-0">
+        <div className="p-4 border-b border-slate-100 space-y-3 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-800 tracking-tight">Goals List</h2>
             <button
@@ -257,7 +188,6 @@ export default function GoalsView({
             />
           </div>
 
-          {/* Urgency Quick Filters */}
           <div className="flex flex-wrap gap-1">
             {['all', 'critical', 'high', 'moderate', 'relaxed'].map((urg) => (
               <button
@@ -275,7 +205,6 @@ export default function GoalsView({
           </div>
         </div>
 
-        {/* Goals Scrollable List */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
           {filteredGoals.length === 0 ? (
             <div className="text-center py-10 px-4">
@@ -304,7 +233,7 @@ export default function GoalsView({
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2 min-w-0">
                       <div
-                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0"
                         style={{ background: color }}
                       />
                       <p className={`text-xs font-bold truncate ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
@@ -314,7 +243,7 @@ export default function GoalsView({
                     
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteGoal(g.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-opacity flex-shrink-0"
+                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-opacity shrink-0"
                     >
                       <Trash2 size={12} />
                     </button>
@@ -331,12 +260,10 @@ export default function GoalsView({
         </div>
       </div>
 
-      {/* ── RIGHT PANEL: DETAILED TARGET GOAL ──────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/20">
         {selectedGoal ? (
           <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
             
-            {/* Header info */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
                 <span className={`badge uppercase text-[9px] mb-1 font-bold ${
@@ -350,7 +277,6 @@ export default function GoalsView({
               </div>
             </div>
 
-            {/* Visualizer Tab Switcher */}
             <div className="flex gap-1 p-1 rounded-xl w-fit border border-slate-200 bg-slate-50/40 backdrop-blur-sm">
               <button
                 onClick={() => setActiveTab('timeline')}
@@ -384,7 +310,6 @@ export default function GoalsView({
               </button>
             </div>
 
-            {/* AI Overview Box */}
             <div className="glass-panel p-5">
               <p className="label-luxury mb-2">AI Strategic Roadmap Overview</p>
               <p className="text-xs text-slate-600 leading-relaxed font-sans">
@@ -392,11 +317,9 @@ export default function GoalsView({
               </p>
             </div>
 
-            {/* TABS CONTAINER */}
             <div className="mt-4">
               <AnimatePresence mode="wait">
                 
-                {/* ── TIMELINE TAB ──────────────────────── */}
                 {activeTab === 'timeline' && (
                   <motion.div
                     key="timeline"
@@ -406,10 +329,9 @@ export default function GoalsView({
                     transition={{ duration: 0.2 }}
                     className="relative space-y-4 pl-8"
                   >
-                    {/* Glowing Progress Line */}
-                    <div className="absolute left-[18px] top-4 bottom-4 w-[2px] bg-slate-200" />
+                    <div className="absolute left-4.5 top-4 bottom-4 w-0.5 bg-slate-200" />
                     <div 
-                      className="absolute left-[18px] top-4 w-[2px] bg-indigo-500 shadow-[0_0_8px_#6366f1] transition-all duration-500" 
+                      className="absolute left-4.5 top-4 w-0.5 bg-indigo-500 shadow-[0_0_8px_#6366f1] transition-all duration-550" 
                       style={{ 
                         height: `calc(${
                           selectedGoal.milestones.length > 0
@@ -438,10 +360,9 @@ export default function GoalsView({
                             transition={{ delay: i * 0.05 }}
                             className="relative space-y-2 group"
                           >
-                            {/* Connector Circle Dot */}
                             <button
                               onClick={() => toggleMilestone(selectedGoal.id, selectedGoal.milestones, m.id)}
-                              className="absolute -left-[30px] top-1.5 w-6 h-6 rounded-full border-2 bg-white flex items-center justify-center z-10 transition-all hover:scale-105"
+                              className="absolute -left-7.5 top-1.5 w-6 h-6 rounded-full border-2 bg-white flex items-center justify-center z-10 transition-all hover:scale-105"
                               style={{ borderColor: m.completed ? '#6366F1' : '#CBD5E1' }}
                             >
                               {m.completed ? (
@@ -451,9 +372,8 @@ export default function GoalsView({
                               )}
                             </button>
 
-                            {/* Milestone Card */}
                             <div className="glass-panel-sm p-5 hover:shadow-md transition-all space-y-3">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100/50 pb-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100/55 pb-2">
                                 <div className="space-y-1">
                                   <h4 className={`text-xs font-bold ${m.completed ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                                     {m.title}
@@ -476,7 +396,6 @@ export default function GoalsView({
                                 {m.description}
                               </p>
 
-                              {/* Suggestions Tags */}
                               {!m.completed && m.suggestions?.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {m.suggestions.map((s, si) => (
@@ -491,7 +410,6 @@ export default function GoalsView({
                                 </div>
                               )}
 
-                              {/* Subtasks Accordion Button */}
                               {(m.subtasks ?? []).length > 0 && (
                                 <button
                                   onClick={() => toggleMilestoneExpand(m.id)}
@@ -502,7 +420,6 @@ export default function GoalsView({
                                 </button>
                               )}
 
-                              {/* Subtasks List */}
                               {isExpanded && (m.subtasks ?? []).length > 0 && (
                                 <div className="pt-2 space-y-2 pl-2">
                                   {m.subtasks?.map((st) => (
@@ -514,7 +431,7 @@ export default function GoalsView({
                                         onClick={() => toggleSubtask(selectedGoal.id, selectedGoal.milestones, m.id, st.id)}
                                         className="mt-0.5 flex"
                                       >
-                                        <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 cursor-pointer ${
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer ${
                                           st.completed 
                                             ? 'bg-indigo-600 border-indigo-600' 
                                             : 'bg-white border-slate-200 hover:border-slate-350'
@@ -537,7 +454,6 @@ export default function GoalsView({
                   </motion.div>
                 )}
 
-                {/* ── KANBAN BOARD TAB ──────────────────── */}
                 {activeTab === 'kanban' && (
                   <motion.div
                     key="kanban"
@@ -554,7 +470,7 @@ export default function GoalsView({
                     ].map((col) => (
                       <div 
                         key={col.id}
-                        className={`flex flex-col border border-slate-200/60 rounded-2xl p-4 min-h-[350px] space-y-3 ${col.color}`}
+                        className={`flex flex-col border border-slate-200/60 rounded-2xl p-4 min-h-87.5 space-y-3 ${col.color}`}
                       >
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                           <span className="text-xs font-bold text-slate-700">{col.title}</span>
@@ -563,7 +479,7 @@ export default function GoalsView({
                           </span>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[450px] no-scrollbar pr-0.5">
+                        <div className="flex-1 overflow-y-auto space-y-2.5 max-h-112.5 no-scrollbar pr-0.5">
                           {col.items.length === 0 ? (
                             <div className="text-center py-10">
                               <p className="text-[10px] text-slate-400 italic">Column is empty</p>
@@ -586,7 +502,6 @@ export default function GoalsView({
                                     </p>
                                   </div>
 
-                                  {/* Kanban Board Interaction Controls */}
                                   <div className="flex items-center justify-between border-t border-slate-50/80 pt-2 mt-1">
                                     <span className="text-[8px] text-slate-400 font-bold">
                                       {milestone ? `Day ${milestone.daysFromStart}` : ''}
@@ -623,7 +538,6 @@ export default function GoalsView({
                   </motion.div>
                 )}
 
-                {/* ── PROGRESS ROADMAP TAB ───────────────── */}
                 {activeTab === 'roadmap' && (
                   <motion.div
                     key="roadmap"
@@ -633,10 +547,8 @@ export default function GoalsView({
                     transition={{ duration: 0.2 }}
                     className="space-y-6"
                   >
-                    {/* Overall Summary Widgets */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       
-                      {/* Completion Progress Gauge */}
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <span className="label-luxury block mb-2">Overall Progress</span>
                         <div className="flex items-baseline gap-2 mt-1">
@@ -651,7 +563,6 @@ export default function GoalsView({
                         </div>
                       </div>
 
-                      {/* Difficulty Metric */}
                       <div className="glass-panel p-5 flex flex-col justify-between border-l-4 border-l-amber-500">
                         <span className="label-luxury block mb-2">Difficulty Level</span>
                         <div className="mt-1">
@@ -662,7 +573,6 @@ export default function GoalsView({
                         <p className="text-[10px] text-slate-400 leading-normal mt-2 font-sans">Gemini mapped your milestones to a {selectedGoal.difficultyLevel ?? 'moderate'} load profile.</p>
                       </div>
 
-                      {/* Priority Level */}
                       <div className="glass-panel p-5 flex flex-col justify-between border-l-4 border-l-indigo-600">
                         <span className="label-luxury block mb-2">Priority Level</span>
                         <div className="mt-1">
@@ -675,8 +585,7 @@ export default function GoalsView({
 
                     </div>
 
-                    {/* AI Advisor Insight */}
-                    <div className="glass-panel p-5 bg-gradient-to-r from-indigo-50/20 to-amber-50/10 border border-indigo-100 flex gap-4 items-start">
+                    <div className="glass-panel p-5 bg-linear-to-r from-indigo-50/20 to-amber-50/10 border border-indigo-100 flex gap-4 items-start">
                       <div className="p-2 bg-indigo-50/10 rounded-xl text-indigo-600 mt-0.5">
                         <Brain size={18} className="animate-pulse" />
                       </div>
@@ -686,7 +595,6 @@ export default function GoalsView({
                       </div>
                     </div>
 
-                    {/* Weekly Objectives List */}
                     <div className="space-y-3">
                       <h3 className="label-luxury">Weekly Milestones & Objectives</h3>
                       
@@ -708,7 +616,7 @@ export default function GoalsView({
                             >
                               <button
                                 onClick={() => toggleWeeklyObjective(selectedGoal.id, selectedGoal.weeklyObjectives || [], wo.id)}
-                                className="mt-0.5 flex-shrink-0 flex cursor-pointer"
+                                className="mt-0.5 shrink-0 flex cursor-pointer"
                               >
                                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
                                   wo.completed ? 'bg-green-500 border-green-500' : 'bg-white border-slate-200 hover:border-slate-350'

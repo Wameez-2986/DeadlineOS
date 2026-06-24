@@ -2,63 +2,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import {
-  CheckCircle2, Circle, Clock, Filter, ListTodo,
-  AlertCircle, ChevronDown, CheckCircle
-} from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string; // ISO date string
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  userId: string;
-}
+import { CheckCircle2, Clock, ListTodo } from 'lucide-react';
+import { Goal, Milestone } from '@/lib/types';
 
 interface TasksViewProps {
   goals: Goal[];
@@ -70,14 +15,12 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
   const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
 
-  // Priority Dot Helper
   const priorityColors = {
     high: { bg: 'bg-rose-50 text-rose-600 border-rose-100', dot: '#F43F5E' },
     medium: { bg: 'bg-amber-50 text-amber-600 border-amber-100', dot: '#F59E0B' },
     low: { bg: 'bg-green-50 text-green-600 border-green-100', dot: '#22C55E' }
   };
 
-  // Compile all tasks across all goals
   const allTasks = useMemo(() => {
     const tasks: Array<{
       goalId: string;
@@ -98,7 +41,6 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
     return tasks;
   }, [goals]);
 
-  // Filter tasks based on settings
   const filteredTasks = useMemo(() => {
     return allTasks.filter((t) => {
       const matchesGoal = selectedGoalFilter === 'all' || t.goalId === selectedGoalFilter;
@@ -112,7 +54,6 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6 no-scrollbar space-y-6">
       
-      {/* ── HEADER ──────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Tasks Tracker</h1>
@@ -120,11 +61,9 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
         </div>
       </div>
 
-      {/* ── FILTERING PANEL ─────────────────────────────── */}
       <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           
-          {/* Goal Filter */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Goal:</span>
             <select
@@ -139,7 +78,6 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
             </select>
           </div>
 
-          {/* Priority Filter */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Priority:</span>
             <select
@@ -156,7 +94,6 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
 
         </div>
 
-        {/* Status Tabs */}
         <div className="flex gap-1 p-1 rounded-xl w-fit border border-slate-100 bg-slate-50/50">
           {(['active', 'completed'] as const).map((tab) => (
             <button
@@ -174,7 +111,6 @@ export default function TasksView({ goals, toggleMilestone }: TasksViewProps) {
         </div>
       </div>
 
-      {/* ── TASKS GRID / LIST ───────────────────────────── */}
       <div className="space-y-3">
         {filteredTasks.length === 0 ? (
           <div className="text-center py-16 bg-white/40 border border-slate-200/50 rounded-2xl">

@@ -3,69 +3,15 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Clock,
-  Activity, Sparkles, RefreshCw, FileText, Calendar, ShieldAlert,
-  ChevronRight, AlertCircle, PlayCircle
+  TrendingUp, AlertTriangle, CheckCircle2, Clock, Activity, Sparkles, RefreshCw,
+  FileText, Calendar, ShieldAlert, ChevronRight, AlertCircle, PlayCircle
 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
-
-interface Subtask {
-  id: string;
-  title: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  status?: 'todo' | 'in_progress' | 'done';
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  daysFromStart: number;
-  priority: 'high' | 'medium' | 'low';
-  difficulty?: 'easy' | 'medium' | 'hard';
-  suggestions: string[];
-  completed: boolean;
-  completedAt?: Timestamp | null;
-  subtasks?: Subtask[];
-}
-
-interface WeeklyObjective {
-  id: string;
-  weekNumber: number;
-  objective: string;
-  completed: boolean;
-  completedAt?: Timestamp | null;
-}
-
-interface RiskAnalysis {
-  riskScore: number;
-  missProbability: number;
-  reasoning: string;
-  recoveryPlan: string[];
-  updatedAt: string;
-}
-
-interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  deadline: string;
-  createdAt: Timestamp;
-  milestones: Milestone[];
-  overview?: string;
-  urgencyLevel?: string;
-  difficultyLevel?: 'easy' | 'medium' | 'hard';
-  priorityLevel?: 'high' | 'medium' | 'low';
-  weeklyObjectives?: WeeklyObjective[];
-  riskAnalysis?: RiskAnalysis;
-  userId: string;
-}
+import { Goal } from '@/lib/types';
 
 interface RiskDashboardViewProps {
   goals: Goal[];
   runRiskAssessment: (goalId: string) => Promise<void>;
-  onNavigate: (view: 'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk') => void;
+  onNavigate: (view: 'dashboard' | 'goals' | 'tasks' | 'calendar' | 'ai' | 'settings' | 'risk' | 'planner') => void;
   selectedGoalId: string | null;
   setSelectedGoalId: (id: string | null) => void;
 }
@@ -79,44 +25,37 @@ export default function RiskDashboardView({
 }: RiskDashboardViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [now] = useState(() => Date.now());
 
-  // Find currently selected goal
   const selectedGoal = useMemo(() => {
     return goals.find((g) => g.id === selectedGoalId) || goals[0] || null;
   }, [goals, selectedGoalId]);
 
-  // Sync selected goal state
   const handleSelectGoal = (id: string) => {
     setSelectedGoalId(id);
     setError('');
   };
 
-  // Run the assessment
   const handleAudit = async (goalId: string) => {
     if (loading) return;
     setLoading(true);
     setError('');
     try {
       await runRiskAssessment(goalId);
-    } catch (err) {
-      console.error(err);
+    } catch {
       setError('Analysis failed. Please verify API configuration and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper: calculate velocity locally for display if audit not run yet,
-  // or to show live stats.
   const liveStats = useMemo(() => {
     if (!selectedGoal) return { velocity: 0, daysLeft: 0, pendingHigh: 0, completedPct: 0 };
     
-    // Days remaining
-    const dl = Math.max(0, Math.ceil((new Date(selectedGoal.deadline).getTime() - Date.now()) / 86400000));
+    const dl = Math.max(0, Math.ceil((new Date(selectedGoal.deadline).getTime() - now) / 86400000));
     
-    // Velocity: count of subtasks completed in the last 7 days
     let velocity = 0;
-    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
     selectedGoal.milestones.forEach((m) => {
       (m.subtasks ?? []).forEach((s) => {
         if (s.completed && s.completedAt) {
@@ -130,23 +69,20 @@ export default function RiskDashboardView({
       });
     });
 
-    // Pending high priority milestones
     const pendingHigh = selectedGoal.milestones.filter(m => !m.completed && m.priority === 'high').length;
 
-    // Completed Milestones %
     const totalMilestones = selectedGoal.milestones.length;
     const completedMilestones = selectedGoal.milestones.filter(m => m.completed).length;
     const completedPct = totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
     return { velocity, daysLeft: dl, pendingHigh, completedPct };
-  }, [selectedGoal]);
+  }, [selectedGoal, now]);
 
-  // Risk Rating Configs
   const riskConfig = (score: number) => {
     if (score <= 35) {
       return {
         label: 'Low Risk / On Track',
-        color: '#10B981', // Emerald
+        color: '#10B981',
         bgColor: 'rgba(16, 185, 129, 0.08)',
         borderColor: 'rgba(16, 185, 129, 0.2)',
         textColor: 'text-emerald-700',
@@ -157,7 +93,7 @@ export default function RiskDashboardView({
     if (score <= 70) {
       return {
         label: 'Moderate Risk',
-        color: '#F59E0B', // Amber
+        color: '#F59E0B',
         bgColor: 'rgba(245, 158, 11, 0.08)',
         borderColor: 'rgba(245, 158, 11, 0.2)',
         textColor: 'text-amber-700',
@@ -167,7 +103,7 @@ export default function RiskDashboardView({
     }
     return {
       label: 'High Risk / Critical',
-      color: '#EF4444', // Red
+      color: '#EF4444',
       bgColor: 'rgba(239, 68, 68, 0.08)',
       borderColor: 'rgba(239, 68, 68, 0.2)',
       textColor: 'text-rose-700',
@@ -176,24 +112,17 @@ export default function RiskDashboardView({
     };
   };
 
-  // Render SVG Arc Gauge
   const renderGauge = (score: number) => {
     const config = riskConfig(score);
-    // Draw an arc (semi-circle). SVG circle with stroke-dasharray/offset is standard.
-    // For a semi-circle, we can set stroke-dasharray="157 314" or similar.
-    // Let's use a nice circular gauge with 3/4 circumference.
-    // Center at 60, 60, radius 45.
     const r = 45;
-    const circ = 2 * Math.PI * r; // ~282.7
-    // Let's do a 240-degree gauge (from -210 deg to 30 deg).
+    const circ = 2 * Math.PI * r;
     const angleRange = 240;
-    const dashArray = (circ * angleRange) / 360; // ~188.5
+    const dashArray = (circ * angleRange) / 360;
     const dashOffset = dashArray - (score / 100) * dashArray;
 
     return (
       <div className="relative w-44 h-36 flex flex-col items-center justify-center">
-        <svg viewBox="0 0 120 120" className="w-full h-full -rotate-[210deg]">
-          {/* Background Arc */}
+        <svg viewBox="0 0 120 120" className="w-full h-full rotate-[-210deg]">
           <circle
             cx="60"
             cy="60"
@@ -204,7 +133,6 @@ export default function RiskDashboardView({
             strokeDasharray={`${dashArray} ${circ}`}
             strokeLinecap="round"
           />
-          {/* Active Arc */}
           <circle
             cx="60"
             cy="60"
@@ -231,8 +159,7 @@ export default function RiskDashboardView({
 
   return (
     <div className="flex-1 flex overflow-hidden h-full">
-      {/* ── LEFT PANE: GOALS SELECTOR ── */}
-      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col flex-shrink-0">
+      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col shrink-0">
         <div className="p-4 border-b border-slate-100/80">
           <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Select Goal Context</h2>
           <p className="text-xs text-slate-400">Choose a deadline target to analyze</p>
@@ -270,12 +197,12 @@ export default function RiskDashboardView({
                   
                   <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-100/50">
                     <span className="text-[10px] text-slate-400">
-                      {Math.max(0, Math.ceil((new Date(g.deadline).getTime() - Date.now()) / 86400000))}d left
+                      {Math.max(0, Math.ceil((new Date(g.deadline).getTime() - now) / 86400000))}d left
                     </span>
                     
                     {hasAnalysis && analysis ? (
                       <div className="flex items-center gap-1">
-                        <span className={`w-1.5 h-1.5 rounded-full`} style={{ backgroundColor: config?.color }} />
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: config?.color }} />
                         <span className="text-[10px] font-bold" style={{ color: config?.color }}>
                           {analysis.riskScore} Risk
                         </span>
@@ -293,7 +220,6 @@ export default function RiskDashboardView({
         </div>
       </div>
 
-      {/* ── RIGHT PANE: RISK AUDIT DETAILS ── */}
       <div className="flex-1 bg-luxury-grid overflow-y-auto p-6 space-y-6 no-scrollbar flex flex-col justify-between">
         {!selectedGoal ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
@@ -309,7 +235,6 @@ export default function RiskDashboardView({
           </div>
         ) : (
           <div className="space-y-6 flex-1">
-            {/* Header / Actions Panel */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200/55">
               <div>
                 <div className="flex items-center gap-2">
@@ -351,10 +276,8 @@ export default function RiskDashboardView({
               </div>
             )}
 
-            {/* Content Switch */}
             <AnimatePresence mode="wait">
               {!selectedGoal.riskAnalysis ? (
-                // ── NO ANALYSIS YET CALL-TO-ACTION ──
                 <motion.div
                   key="no-analysis"
                   initial={{ opacity: 0, y: 10 }}
@@ -367,7 +290,7 @@ export default function RiskDashboardView({
                   </div>
                   <h2 className="text-lg font-extrabold text-slate-800">Financial-Grade Risk Assessment</h2>
                   <p className="text-sm text-slate-500 mt-2 max-w-md leading-relaxed">
-                    Audit your goal's progress rate, task prioritizations, current timeline buffer, and task velocity. 
+                    Audit your goal&apos;s progress rate, task prioritizations, current timeline buffer, and task velocity. 
                     Our AI advisor will generate a risk model, miss probability index, and dynamic recovery strategy.
                   </p>
                   
@@ -401,7 +324,6 @@ export default function RiskDashboardView({
                   </button>
                 </motion.div>
               ) : (
-                // ── AUDIT REPORT DASHBOARD ──
                 <motion.div
                   key="audit-report"
                   initial={{ opacity: 0 }}
@@ -409,10 +331,8 @@ export default function RiskDashboardView({
                   exit={{ opacity: 0 }}
                   className="space-y-6"
                 >
-                  {/* Top Dashboard Grid */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     
-                    {/* Deadline Health Meter Card */}
                     <div className="lg:col-span-5 glass-panel p-6 flex flex-col items-center justify-between relative overflow-hidden">
                       <div className="absolute top-4 left-4 flex items-center gap-1.5">
                         <Activity size={14} className="text-slate-400" />
@@ -423,7 +343,6 @@ export default function RiskDashboardView({
                         {renderGauge(selectedGoal.riskAnalysis.riskScore)}
                       </div>
 
-                      {/* Status Badge */}
                       <div
                         className="px-4 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 shadow-sm"
                         style={{
@@ -441,10 +360,8 @@ export default function RiskDashboardView({
                       </div>
                     </div>
 
-                    {/* Numeric Widgets Grid */}
                     <div className="lg:col-span-7 grid grid-cols-2 gap-4">
                       
-                      {/* Miss Probability */}
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between">
@@ -468,7 +385,6 @@ export default function RiskDashboardView({
                         </div>
                       </div>
 
-                      {/* Velocity Metric */}
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between">
@@ -484,7 +400,6 @@ export default function RiskDashboardView({
                         </p>
                       </div>
 
-                      {/* Days Buffer */}
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between">
@@ -500,7 +415,6 @@ export default function RiskDashboardView({
                         </p>
                       </div>
 
-                      {/* Milestone Progress */}
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between">
@@ -524,10 +438,8 @@ export default function RiskDashboardView({
                     </div>
                   </div>
 
-                  {/* Audit Reasoning & Recovery Plan Layout */}
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                     
-                    {/* Left Detail Pane: Audit Report Text */}
                     <div className="md:col-span-6 space-y-4">
                       <div className="flex items-center gap-2 px-1">
                         <FileText size={16} className="text-indigo-500" />
@@ -545,7 +457,6 @@ export default function RiskDashboardView({
                       </div>
                     </div>
 
-                    {/* Right Detail Pane: Dynamic Recovery Plan */}
                     <div className="md:col-span-6 space-y-4">
                       <div className="flex items-center gap-2 px-1">
                         <Sparkles size={16} className="text-yellow-500" />
