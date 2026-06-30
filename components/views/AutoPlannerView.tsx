@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles, RefreshCw, Calendar, Clock, AlertTriangle, CheckCircle2,
-  ChevronLeft, ChevronRight, ChevronDown, CalendarDays, ListTodo, ShieldAlert, TrendingUp
+  ChevronLeft, ChevronRight, ChevronDown, CalendarDays, ListTodo, ShieldAlert, TrendingUp, ArrowLeft
 } from 'lucide-react';
 import { Goal, AutoPlan, RecoveryProposal, WeeklyPlanSummary, WorkSession } from '@/lib/types';
 
@@ -36,6 +36,7 @@ export default function AutoPlannerView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
 
   const selectedGoal = useMemo(() => {
     return goals.find((g) => g.id === selectedGoalId) || goals[0] || null;
@@ -57,6 +58,7 @@ export default function AutoPlannerView({
   const handleGoalChange = (id: string) => {
     setSelectedGoalId(id);
     setError('');
+    setMobileView('detail');
   };
 
   const [agentRunning, setAgentRunning] = useState(false);
@@ -88,6 +90,7 @@ export default function AutoPlannerView({
     setError('');
     try {
       await generateAutoPlan(selectedGoal.id, availableHours);
+      setMobileView('detail');
     } catch {
       setError('AI scheduling failed. Please verify API configuration and try again.');
     } finally {
@@ -240,8 +243,8 @@ export default function AutoPlannerView({
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden h-full">
-      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col shrink-0">
+    <div className="flex-1 flex flex-col md:flex-row overflow-hidden h-full">
+      <div className={`w-full md:w-80 border-r border-slate-200/60 bg-white/40 flex-col shrink-0 ${mobileView === 'list' ? 'flex' : 'hidden md:flex'}`}>
         <div className="p-4 border-b border-slate-100/80">
           <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Plan Settings</h2>
           <p className="text-xs text-slate-400">Configure daily allocations</p>
@@ -358,7 +361,16 @@ export default function AutoPlannerView({
         </div>
       </div>
 
-      <div className="flex-1 bg-luxury-grid overflow-hidden flex flex-col justify-between">
+      <div className={`flex-1 bg-luxury-grid overflow-hidden flex-col justify-between ${mobileView === 'detail' ? 'flex' : 'hidden md:flex'}`}>
+        {/* Mobile Back Button */}
+        <div className="md:hidden px-4 py-2.5 bg-white/60 border-b border-slate-200/60 flex items-center shrink-0">
+          <button
+            onClick={() => setMobileView('list')}
+            className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 cursor-pointer"
+          >
+            <ArrowLeft size={14} className="text-indigo-600" /> Back to Planner Settings
+          </button>
+        </div>
         {!selectedGoal ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
             <Calendar size={48} className="text-slate-300 mb-3 animate-pulse" />
@@ -401,8 +413,8 @@ export default function AutoPlannerView({
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-6 pt-4 pb-0 border-b border-slate-200/60 bg-white/72 flex items-center justify-between shrink-0">
-              <div className="flex gap-4">
+            <div className="px-6 pt-4 pb-0 border-b border-slate-200/60 bg-white/72 flex items-center justify-between shrink-0 overflow-x-auto no-scrollbar">
+              <div className="flex gap-4 flex-nowrap shrink-0">
                 {([
                   { id: 'day', label: 'Day Planner', icon: ListTodo },
                   { id: 'calendar', label: 'Calendar Month', icon: CalendarDays },
@@ -415,7 +427,7 @@ export default function AutoPlannerView({
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className="pb-3 text-xs font-bold relative flex items-center gap-2 cursor-pointer transition-colors"
+                      className="pb-3 text-xs font-bold relative flex items-center gap-2 cursor-pointer transition-colors whitespace-nowrap shrink-0"
                       style={{ color: isActive ? '#4F46E5' : '#94A3B8' }}
                     >
                       <Icon size={14} />

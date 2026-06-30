@@ -115,7 +115,8 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
       
-      <div className="w-full md:w-72 border-r border-slate-200/60 bg-white/40 backdrop-blur-md p-4 flex flex-col space-y-4">
+      {/* Desktop Context Sidebar */}
+      <div className="hidden md:flex w-72 border-r border-slate-200/60 bg-white/40 backdrop-blur-md p-4 flex-col space-y-4 shrink-0">
         <div>
           <h2 className="text-sm font-bold text-slate-800 tracking-tight">AI Advisor Context</h2>
           <p className="text-[11px] text-slate-400">Select which active goal context the AI should focus on.</p>
@@ -171,6 +172,23 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
               Online
             </p>
           </div>
+        </div>
+
+        {/* Mobile Context Dropdown */}
+        <div className="md:hidden px-4 py-2.5 border-b border-slate-150 bg-white/40 flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Context:</span>
+          <select
+            value={selectedGoalId}
+            onChange={(e) => changeContext(e.target.value)}
+            className="flex-1 glass-input px-3 py-1.5 text-xs text-slate-700 bg-white font-semibold outline-none cursor-pointer h-10"
+          >
+            <option value="all">General Workspace Consulting</option>
+            {goals.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.title}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
@@ -232,7 +250,7 @@ export default function AIAssistantView({ goals }: AIAssistantViewProps) {
             onClick={() => handleSend()}
             disabled={sending || !input.trim()}
             className="btn-primary p-3 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
-            style={{ width: '40px', height: '40px', padding: '0' }}
+            style={{ width: '44px', height: '44px', padding: '0' }}
           >
             <Send size={14} className="text-white" />
           </button>

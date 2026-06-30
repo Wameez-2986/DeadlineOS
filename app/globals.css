@@ -196,6 +196,7 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 12px 28px;
+  min-height: 44px;
   background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
   color: #fff;
   font-weight: 600;
@@ -238,6 +239,7 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 11px 26px;
+  min-height: 44px;
   background: rgba(255, 255, 255, 0.9);
   color: #475569;
   font-weight: 600;
@@ -264,6 +266,7 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 12px 28px;
+  min-height: 44px;
   background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
   color: #fff;
   font-weight: 600;
@@ -318,21 +321,21 @@ body {
    ======================== */
 
 .heading-display {
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-size: clamp(1.75rem, 5vw, 4.5rem);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.08;
 }
 
 .heading-xl {
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-size: clamp(1.35rem, 4vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.15;
 }
 
 .heading-lg {
-  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-size: clamp(1.1rem, 2.5vw, 1.75rem);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -393,6 +396,16 @@ body {
   align-items: center;
   justify-content: center;
   margin-top: 2px;
+  position: relative;
+}
+
+.milestone-checkbox::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  right: -12px;
+  bottom: -12px;
 }
 
 .milestone-checkbox.checked {

@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp, AlertTriangle, CheckCircle2, Clock, Activity, Sparkles, RefreshCw,
-  FileText, Calendar, ShieldAlert, ChevronRight, AlertCircle, PlayCircle
+  FileText, Calendar, ShieldAlert, ChevronRight, AlertCircle, PlayCircle, ArrowLeft
 } from 'lucide-react';
 import { Goal } from '@/lib/types';
 
@@ -26,6 +26,7 @@ export default function RiskDashboardView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [now] = useState(() => Date.now());
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
 
   const selectedGoal = useMemo(() => {
     return goals.find((g) => g.id === selectedGoalId) || goals[0] || null;
@@ -158,8 +159,8 @@ export default function RiskDashboardView({
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden h-full">
-      <div className="w-80 border-r border-slate-200/60 bg-white/40 flex flex-col shrink-0">
+    <div className="flex-1 flex flex-col md:flex-row overflow-hidden h-full">
+      <div className={`w-full md:w-80 border-r border-slate-200/60 bg-white/40 flex-col shrink-0 ${mobileView === 'list' ? 'flex' : 'hidden md:flex'}`}>
         <div className="p-4 border-b border-slate-100/80">
           <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Select Goal Context</h2>
           <p className="text-xs text-slate-400">Choose a deadline target to analyze</p>
@@ -181,7 +182,7 @@ export default function RiskDashboardView({
               return (
                 <button
                   key={g.id}
-                  onClick={() => handleSelectGoal(g.id)}
+                  onClick={() => { handleSelectGoal(g.id); setMobileView('detail'); }}
                   className="w-full text-left p-3.5 rounded-xl transition-all duration-150 relative border group flex flex-col gap-1 cursor-pointer select-none"
                   style={{
                     background: isSelected ? 'rgba(99,102,241,0.06)' : 'transparent',
@@ -220,7 +221,7 @@ export default function RiskDashboardView({
         </div>
       </div>
 
-      <div className="flex-1 bg-luxury-grid overflow-y-auto p-6 space-y-6 no-scrollbar flex flex-col justify-between">
+      <div className={`flex-1 bg-luxury-grid overflow-y-auto p-6 space-y-6 no-scrollbar flex-col justify-between ${mobileView === 'detail' ? 'flex' : 'hidden md:flex'}`}>
         {!selectedGoal ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
             <ShieldAlert size={48} className="text-slate-300 mb-3 animate-pulse" />
@@ -236,18 +237,26 @@ export default function RiskDashboardView({
         ) : (
           <div className="space-y-6 flex-1">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200/55">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    Risk Audit Context
-                  </span>
-                  {selectedGoal.riskAnalysis && (
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Clock size={10} /> Audited {new Date(selectedGoal.riskAnalysis.updatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => setMobileView('list')}
+                  className="md:hidden flex items-center gap-1.5 text-xs font-bold text-indigo-600 mb-2 w-fit cursor-pointer"
+                >
+                  <ArrowLeft size={14} className="text-indigo-600" /> Back to Goal List
+                </button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      Risk Audit Context
                     </span>
-                  )}
+                    {selectedGoal.riskAnalysis && (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <Clock size={10} /> Audited {new Date(selectedGoal.riskAnalysis.updatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <h1 className="text-2xl font-black text-slate-800 tracking-tight mt-1">{selectedGoal.title}</h1>
                 </div>
-                <h1 className="text-2xl font-black text-slate-800 tracking-tight mt-1">{selectedGoal.title}</h1>
               </div>
 
               <button
@@ -360,7 +369,7 @@ export default function RiskDashboardView({
                       </div>
                     </div>
 
-                    <div className="lg:col-span-7 grid grid-cols-2 gap-4">
+                    <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
                       
                       <div className="glass-panel p-5 flex flex-col justify-between">
                         <div>

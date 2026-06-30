@@ -166,7 +166,7 @@ function NewGoalModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         initial={{ scale: 0.95, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 20 }}
-        className="glass-panel p-8 w-full max-w-md"
+        className="glass-panel p-5 sm:p-8 w-full max-w-md max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -897,7 +897,7 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         <header
-          className="h-16 flex items-center px-6 border-b border-slate-200/60 shrink-0"
+          className="h-16 flex items-center px-4 sm:px-6 border-b border-slate-200/60 shrink-0"
           style={{ background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)' }}
         >
           <div className="flex items-center justify-between w-full">
@@ -930,9 +930,9 @@ export default function Dashboard() {
               <Button
                 id="header-new-goal"
                 onClick={() => setShowNewGoal(true)}
-                className="btn-primary px-4 py-2 text-sm"
+                className="btn-primary px-3 sm:px-4 py-2 text-sm"
               >
-                <Plus size={15} /> New Goal
+                <Plus size={15} /> <span className="hidden sm:inline">New Goal</span>
               </Button>
             </div>
           </div>

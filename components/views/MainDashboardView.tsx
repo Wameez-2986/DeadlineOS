@@ -134,7 +134,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
             </span>
           </div>
           
-          <div className="flex items-center gap-6 my-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 my-auto text-center sm:text-left py-3 sm:py-0">
             <div className="relative w-24 h-24 shrink-0">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path
@@ -209,8 +209,8 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
                     </div>
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{milestone.title}</p>
-                    <p className="text-[10px] text-slate-400 truncate">Goal: {goalTitle}</p>
+                    <p className="text-xs font-semibold text-slate-800 break-words">{milestone.title}</p>
+                    <p className="text-[10px] text-slate-400 break-words">Goal: {goalTitle}</p>
                   </div>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize h-fit ${
                     milestone.priority === 'high' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
@@ -244,7 +244,7 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
                       className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer hover:scale-[1.01] transition-all ${style.border}`}
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-slate-800 truncate">{g.title}</p>
+                        <p className="text-xs font-bold text-slate-800 break-words">{g.title}</p>
                         <p className="text-[10px] text-slate-400 mt-0.5">
                           {g.milestones.filter(m => m.completed).length}/{g.milestones.length} Milestones
                         </p>
@@ -279,9 +279,9 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
                   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                   return (
                     <div key={g.id} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-700 truncate max-w-[70%]">{g.title}</span>
-                        <span className="text-slate-400 font-medium">{pct}%</span>
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <span className="font-semibold text-slate-700 break-words flex-1 min-w-0">{g.title}</span>
+                        <span className="text-slate-400 font-medium shrink-0">{pct}%</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                         <div 

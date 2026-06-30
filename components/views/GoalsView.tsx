@@ -35,6 +35,7 @@ export default function GoalsView({
   const [filterUrgency, setFilterUrgency] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'timeline' | 'kanban' | 'roadmap'>('timeline');
   const [expandedMilestones, setExpandedMilestones] = useState<Record<string, boolean>>({});
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
 
   const daysLeft = (dateStr: string) => {
     const deadline = new Date(dateStr);
@@ -164,7 +165,7 @@ export default function GoalsView({
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
       
-      <div className="w-full md:w-80 border-r border-slate-200/60 flex flex-col bg-white/40 backdrop-blur-md">
+      <div className={`w-full md:w-80 border-r border-slate-200/60 flex-col bg-white/40 backdrop-blur-md ${mobileView === 'list' ? 'flex' : 'hidden md:flex'}`}>
         
         <div className="p-4 border-b border-slate-100 space-y-3 shrink-0">
           <div className="flex items-center justify-between">
@@ -223,7 +224,7 @@ export default function GoalsView({
               return (
                 <div
                   key={g.id}
-                  onClick={() => setSelectedGoalId(g.id)}
+                  onClick={() => { setSelectedGoalId(g.id); setMobileView('detail'); }}
                   className="w-full text-left p-3 rounded-xl border transition-all cursor-pointer relative group flex flex-col gap-2"
                   style={{
                     background: isSelected ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.4)',
@@ -260,27 +261,35 @@ export default function GoalsView({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/20">
+      <div className={`flex-1 flex-col overflow-hidden bg-slate-50/20 ${mobileView === 'detail' ? 'flex' : 'hidden md:flex'}`}>
         {selectedGoal ? (
           <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-              <div>
-                <span className={`badge uppercase text-[9px] mb-1 font-bold ${
-                  selectedGoal.urgencyLevel === 'critical' ? 'badge-pending text-rose-600 bg-rose-50 border-rose-100' :
-                  selectedGoal.urgencyLevel === 'high' ? 'badge-pending text-amber-600 bg-amber-50 border-amber-100' : 'badge-progress'
-                }`}>
-                  {selectedGoal.urgencyLevel ?? 'Moderate'} Urgency
-                </span>
-                <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">{selectedGoal.title}</h1>
-                <p className="text-xs text-slate-400 mt-0.5">Deadline: {formatDateStr(selectedGoal.deadline)} ({daysLeft(selectedGoal.deadline)} days remaining)</p>
-              </div>
-            </div>
+               <div className="flex flex-col gap-1">
+                 <button
+                   onClick={() => setMobileView('list')}
+                   className="md:hidden flex items-center gap-1.5 text-xs font-bold text-indigo-600 mb-2 w-fit cursor-pointer"
+                 >
+                   <ArrowLeft size={14} /> Back to Goals List
+                 </button>
+                 <div>
+                   <span className={`badge uppercase text-[9px] mb-1 font-bold ${
+                     selectedGoal.urgencyLevel === 'critical' ? 'badge-pending text-rose-600 bg-rose-50 border-rose-100' :
+                     selectedGoal.urgencyLevel === 'high' ? 'badge-pending text-amber-600 bg-amber-50 border-amber-100' : 'badge-progress'
+                   }`}>
+                     {selectedGoal.urgencyLevel ?? 'Moderate'} Urgency
+                   </span>
+                   <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">{selectedGoal.title}</h1>
+                   <p className="text-xs text-slate-400 mt-0.5">Deadline: {formatDateStr(selectedGoal.deadline)} ({daysLeft(selectedGoal.deadline)} days remaining)</p>
+                 </div>
+               </div>
+             </div>
 
-            <div className="flex gap-1 p-1 rounded-xl w-fit border border-slate-200 bg-slate-50/40 backdrop-blur-sm">
+            <div className="flex gap-1 p-1 rounded-xl w-full sm:w-fit border border-slate-200 bg-slate-50/40 backdrop-blur-sm overflow-x-auto no-scrollbar flex-nowrap shrink-0">
               <button
                 onClick={() => setActiveTab('timeline')}
-                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'timeline'
                     ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
                     : 'text-slate-500 hover:text-slate-700'
@@ -290,7 +299,7 @@ export default function GoalsView({
               </button>
               <button
                 onClick={() => setActiveTab('kanban')}
-                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'kanban'
                     ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
                     : 'text-slate-500 hover:text-slate-700'
@@ -300,7 +309,7 @@ export default function GoalsView({
               </button>
               <button
                 onClick={() => setActiveTab('roadmap')}
-                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`py-1.5 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
                   activeTab === 'roadmap'
                     ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
                     : 'text-slate-500 hover:text-slate-700'
