@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   Zap, ArrowRight, Target, Clock, Brain, CheckCircle2,
-  Sparkles, Star, Loader2, BarChart3, MessageSquare, Play
+  Sparkles, Star, Loader2, BarChart3, MessageSquare
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -265,9 +265,6 @@ export default function LandingPage() {
           >
             Start for Free <ArrowRight size={18} />
           </button>
-          <a href="#demo" className="btn-secondary text-base px-7 py-3.5">
-            <Play size={16} /> See Live Demo
-          </a>
         </motion.div>
 
         <motion.div
