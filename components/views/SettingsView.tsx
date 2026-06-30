@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  User, Bell, Calendar, MessageSquare, Key, Save, CheckCircle2, ChevronRight, Settings
+  User, Bell, Calendar, MessageSquare, Save, CheckCircle2, ChevronRight, Settings
 } from 'lucide-react';
 
 export default function SettingsView() {
@@ -142,28 +142,6 @@ export default function SettingsView() {
             </div>
           </div>
 
-          <div className="glass-panel p-5 space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-              <Key size={15} className="text-indigo-600" />
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">AI Platform Keys</h3>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between items-center mb-1">
-                <label className="label-luxury block">Gemini API Key</label>
-                <span className="text-[9px] text-green-500 font-bold bg-green-50 px-2 py-0.5 rounded border border-green-150">Active (.env)</span>
-              </div>
-              <input
-                type="password"
-                value="••••••••••••••••••••••••••••••••••••••••"
-                disabled
-                className="glass-input w-full px-4 py-2.5 text-xs text-slate-400 bg-slate-50 cursor-not-allowed"
-              />
-              <p className="text-[10px] text-slate-400 leading-normal mt-1">
-                The Gemini Developer API key is currently served by the server environment variables. This enables milestone roadmaps and advisory chats for your workspace.
-              </p>
-            </div>
-          </div>
 
         </div>
       </div>

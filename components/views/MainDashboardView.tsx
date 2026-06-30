@@ -67,6 +67,53 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
     return list;
   }, [goals]);
 
+  const weeklyActivity = useMemo(() => {
+    const daysData = [];
+    const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const counts: Record<string, number> = {};
+    const now = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(now.getDate() - i);
+      const dayKey = d.toDateString();
+      counts[dayKey] = 0;
+      daysData.push({
+        dayKey,
+        label: weekdayLabels[d.getDay()],
+        completed: 0
+      });
+    }
+
+    goals.forEach((goal) => {
+      goal.milestones.forEach((m) => {
+        if (m.completed && m.completedAt) {
+          const completedMs = typeof m.completedAt.toMillis === 'function'
+            ? m.completedAt.toMillis()
+            : new Date(m.completedAt as unknown as string).getTime();
+          
+          const completedDate = new Date(completedMs);
+          const dayKey = completedDate.toDateString();
+          if (counts[dayKey] !== undefined) {
+            counts[dayKey] += 1;
+          }
+        }
+      });
+    });
+
+    const maxCompleted = Math.max(1, ...Object.values(counts));
+
+    return daysData.map((day) => {
+      const completed = counts[day.dayKey] || 0;
+      const heightPercent = Math.round(10 + (completed / maxCompleted) * 85);
+      return {
+        day: day.label,
+        completed,
+        height: `${heightPercent}%`
+      };
+    });
+  }, [goals]);
+
   const handleToggleMilestone = async (goalId: string, milestoneId: string, completed: boolean) => {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) return;
@@ -346,16 +393,12 @@ export default function MainDashboardView({ goals, onNavigate, onSelectGoal }: M
           </div>
 
           <div className="flex items-end justify-between h-25 px-4 mt-3">
-            {[
-              { day: 'Mon', completed: 2, height: '40%' },
-              { day: 'Tue', completed: 4, height: '70%' },
-              { day: 'Wed', completed: 1, height: '25%' },
-              { day: 'Thu', completed: 5, height: '85%' },
-              { day: 'Fri', completed: 3, height: '55%' },
-              { day: 'Sat', completed: 0, height: '10%' },
-              { day: 'Sun', completed: 2, height: '40%' }
-            ].map((d, i) => (
-              <div key={i} className="flex flex-col items-center gap-2 w-[10%] group">
+            {weeklyActivity.map((d, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 w-[10%] group relative">
+                {/* Tooltip */}
+                <div className="absolute bottom-full mb-1 bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-md">
+                  {d.completed} {d.completed === 1 ? 'milestone' : 'milestones'}
+                </div>
                 <div className="relative w-full h-16.25 bg-slate-50/50 rounded-lg flex items-end overflow-hidden border border-slate-100/30">
                   <motion.div
                     initial={{ height: 0 }}
