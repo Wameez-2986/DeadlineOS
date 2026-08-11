@@ -15,15 +15,46 @@ import {
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 
-import MainDashboardView from './views/MainDashboardView';
-import GoalsView from './views/GoalsView';
-import TasksView from './views/TasksView';
-import CalendarView from './views/CalendarView';
-import AIAssistantView from './views/AIAssistantView';
-import SettingsView from './views/SettingsView';
-import RiskDashboardView from './views/RiskDashboardView';
-import AutoPlannerView from './views/AutoPlannerView';
-import FloatingVoiceAssistant from './FloatingVoiceAssistant';
+import dynamic from 'next/dynamic';
+import {
+  MainDashboardSkeleton,
+  GoalsViewSkeleton,
+  TasksViewSkeleton,
+  CalendarGridSkeleton,
+  AIAssistantSkeleton,
+  SettingsViewSkeleton,
+  RiskDashboardSkeleton,
+  AutoPlannerSkeleton,
+} from '@/components/ui/ViewSkeletons';
+
+const MainDashboardView = dynamic(() => import('./views/MainDashboardView'), {
+  loading: () => <MainDashboardSkeleton />,
+});
+const GoalsView = dynamic(() => import('./views/GoalsView'), {
+  loading: () => <GoalsViewSkeleton />,
+});
+const TasksView = dynamic(() => import('./views/TasksView'), {
+  loading: () => <TasksViewSkeleton />,
+});
+const CalendarView = dynamic(() => import('./views/CalendarView'), {
+  loading: () => <CalendarGridSkeleton />,
+});
+const AIAssistantView = dynamic(() => import('./views/AIAssistantView'), {
+  loading: () => <AIAssistantSkeleton />,
+});
+const SettingsView = dynamic(() => import('./views/SettingsView'), {
+  loading: () => <SettingsViewSkeleton />,
+});
+const RiskDashboardView = dynamic(() => import('./views/RiskDashboardView'), {
+  loading: () => <RiskDashboardSkeleton />,
+});
+const AutoPlannerView = dynamic(() => import('./views/AutoPlannerView'), {
+  loading: () => <AutoPlannerSkeleton />,
+});
+const FloatingVoiceAssistant = dynamic(() => import('./FloatingVoiceAssistant'), {
+  ssr: false,
+});
+
 
 import {
   Goal, Milestone, WeeklyObjective, AutoPlan,
